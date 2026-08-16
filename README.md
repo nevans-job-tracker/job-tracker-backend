@@ -117,8 +117,17 @@ Every run writes two browsable reports:
 - `htmlcov/index.html` — line-by-line coverage (currently 99%)
 - `report.html` — which tests ran and passed
 
-Both are generated output and should be gitignored. Skip them with
-`pytest --no-cov -p no:html`.
+Both are generated output, and both are gitignored. Skip them with:
+
+```bash
+pytest -o addopts='-q'
+```
+
+That replaces the `addopts` block in `pytest.ini` wholesale, which is what
+makes it work. Disabling the plugins instead — `pytest --no-cov -p no:html` —
+looks right but fails: `-p no:html` removes the code that understands
+`--html`, while `addopts` still supplies it, so pytest rejects its own
+configured arguments with `unrecognized arguments` and runs nothing.
 
 The suite needs the same Python 3.10–3.12 interpreter as the app — see §1.
 
