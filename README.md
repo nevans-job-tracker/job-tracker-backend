@@ -93,7 +93,7 @@ After=network.target mysql.service
 User=youruser
 WorkingDirectory=/opt/job-tracker-backend
 EnvironmentFile=/opt/job-tracker-backend/.env
-ExecStart=/opt/job-tracker-backend/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+ExecStart=/opt/job-tracker-backend/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
 Restart=on-failure
 
 [Install]
@@ -108,11 +108,27 @@ sudo systemctl enable --now job-tracker-backend
 sudo systemctl status job-tracker-backend
 ```
 
+**`--host 127.0.0.1`, not `0.0.0.0`.** nginx is the only thing that talks to
+this service, and it does so over loopback (KAN-20). Binding to all interfaces
+would publish the API — and `/docs` — directly on the LAN as a second reachable
+door, which is precisely the surface §6.1 says must be closed before this app
+is exposed anywhere wider.
+
 ## 5. CORS
 
-Update `CORS_ORIGINS` in `.env` to match wherever the frontend is served from
-(e.g. `http://localhost:5173` for dev, or `http://<your-lan-ip>` once you
-build and serve the frontend).
+**The deployed setup does not use CORS.** nginx serves the frontend and proxies
+`/api/` to this service on the same origin (KAN-20), so the browser never makes
+a cross-origin request and `CORS_ORIGINS` is never consulted.
+
+It still matters in **development**, where Vite serves on `:5173` and this API
+answers on `:8000` — two different origins. The default
+(`http://localhost:5173`) already covers that, so nothing needs changing for a
+normal dev setup.
+
+Worth knowing if you ever call this API from somewhere other than the app:
+a `CORS_ORIGINS` mismatch fails *only in the browser*. `curl` will work
+perfectly against the same endpoint, which makes it a confusing thing to
+diagnose from the symptoms alone.
 
 ## 6. Tests
 
