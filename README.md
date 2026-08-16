@@ -35,12 +35,19 @@ GRANT ALL PRIVILEGES ON job_tracker.* TO 'job_tracker'@'localhost';
 FLUSH PRIVILEGES;
 ```
 
-Tables are still created on first app startup via `Base.metadata.create_all`, so
-an empty database needs nothing further to get going.
+Then build the schema by migrating:
 
-Alembic is now set up alongside it (§7) but is **not** yet wired into startup —
-that swap is KAN-16. Until then both mechanisms exist and `create_all` is the
-one that actually runs.
+```bash
+alembic upgrade head
+```
+
+**The app does not create tables.** It has no `create_all` call, so starting it
+against a database that has not been migrated fails on the first query that
+touches a table — `no such table: applications` or the MySQL equivalent. That
+is deliberate: one mechanism owns the schema. See §7.
+
+Note that `/health` still answers `200` on an un-migrated database, since it
+touches nothing. A passing health check is not evidence the schema is there.
 
 ## 3. Run it (dev)
 
@@ -60,12 +67,20 @@ python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env   # fill in real values
+alembic upgrade head   # required — the app will not create tables
 ```
 
 The Python 3.10–3.12 requirement from §1 applies here too, and the server's
 default `python3` is whatever its distribution ships — check it rather than
 assuming, since the failure surfaces as a confusing build error deep in
 `pip install` rather than a clear version complaint.
+
+**`alembic upgrade head` has to run on every deploy that carries a new
+revision, before the service restarts.** The app no longer creates or alters
+schema, so a deploy that skips it starts a service whose queries fail against a
+schema that is behind the code. Wiring this into the deploy step rather than
+leaving it as a remembered manual command is part of KAN-14 — the shape depends
+on the serving stack chosen there.
 
 Create `/etc/systemd/system/job-tracker-backend.service`:
 
@@ -168,9 +183,20 @@ it does not decide. Two things in particular:
   literal `(CURRENT_TIMESTAMP)`. Prefer generating against a database of the
   same engine you deploy to.
 
-Not yet done, tracked in KAN-16: startup still calls `Base.metadata.create_all`,
-so two mechanisms currently define the schema. Until that story lands, treat
-`create_all` as the one in force.
+### The test suite migrates too
+
+`tests/conftest.py` builds its schema with `alembic upgrade head`, not
+`create_all`. `create_all` would be marginally faster — measured at about
+0.1s across the whole suite — but it builds the schema from the models, so it
+would pass whether or not the migrations actually work, leaving the one
+mechanism that runs in production untested.
+
+Teardown runs `downgrade base`, which exercises the downgrade path that would
+otherwise never run at all.
+
+The consequence worth knowing: **a broken revision now fails the test suite**,
+which is the point. If the suite starts failing at session setup rather than in
+a test, look at the newest revision first.
 
 ## API overview
 

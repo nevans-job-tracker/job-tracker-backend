@@ -2,12 +2,16 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.database import Base, engine
 from app.routers import applications
 
-# Creates tables if they don't exist yet. For a solo/local project this is
-# fine; if you later want proper migrations, add Alembic.
-Base.metadata.create_all(bind=engine)
+# The app deliberately does not create or alter schema. `alembic upgrade head`
+# is the single mechanism, run before the service starts — see README §7.
+#
+# This used to call Base.metadata.create_all. Leaving it alongside migrations
+# would mean two things defining the schema: create_all adds a table no
+# revision knows about, and the next autogenerate then proposes dropping it.
+# Starting against a database that has not been migrated should fail loudly on
+# the first query rather than be silently papered over here.
 
 app = FastAPI(title="Job Tracker API")
 
