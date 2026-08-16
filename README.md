@@ -35,8 +35,12 @@ GRANT ALL PRIVILEGES ON job_tracker.* TO 'job_tracker'@'localhost';
 FLUSH PRIVILEGES;
 ```
 
-Tables are created automatically on first app startup (via `Base.metadata.create_all`).
-No manual migration needed for the initial version.
+Tables are still created on first app startup via `Base.metadata.create_all`, so
+an empty database needs nothing further to get going.
+
+Alembic is now set up alongside it (§7) but is **not** yet wired into startup —
+that swap is KAN-16. Until then both mechanisms exist and `create_all` is the
+one that actually runs.
 
 ## 3. Run it (dev)
 
@@ -130,6 +134,43 @@ looks right but fails: `-p no:html` removes the code that understands
 configured arguments with `unrecognized arguments` and runs nothing.
 
 The suite needs the same Python 3.10–3.12 interpreter as the app — see §1.
+
+## 7. Migrations
+
+Alembic manages schema changes. The baseline revision matches the models as of
+its creation; every schema change after that gets its own revision.
+
+```bash
+alembic current                              # what the database is at
+alembic upgrade head                         # apply everything outstanding
+alembic revision --autogenerate -m "message" # draft a revision from model changes
+alembic downgrade -1                         # step back one
+```
+
+**`alembic.ini` deliberately has no `sqlalchemy.url`.** `alembic/env.py` takes
+it from the app's own `Settings`, so connection details have one source of
+truth and no password sits in a committed file. It also means Alembic honours
+the same `DATABASE_URL` override the tests use — to run migrations against a
+throwaway SQLite file rather than the real database, set it:
+
+```bash
+DATABASE_URL=sqlite:///./scratch.sqlite alembic upgrade head
+```
+
+**Always read what `--autogenerate` produced before committing it.** It drafts,
+it does not decide. Two things in particular:
+
+- It only sees what SQLAlchemy models declare. Anything applied to the database
+  by hand is invisible to it, and it will happily propose dropping it.
+- It renders against whichever dialect it connected to. Generating on SQLite
+  and deploying to MySQL leaks SQLite spellings into the migration — that is
+  exactly what happened to the baseline, where `func.now()` came out as the
+  literal `(CURRENT_TIMESTAMP)`. Prefer generating against a database of the
+  same engine you deploy to.
+
+Not yet done, tracked in KAN-16: startup still calls `Base.metadata.create_all`,
+so two mechanisms currently define the schema. Until that story lands, treat
+`create_all` as the one in force.
 
 ## API overview
 
