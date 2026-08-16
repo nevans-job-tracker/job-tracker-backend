@@ -4,6 +4,19 @@ REST API for tracking job applications. Talks to a MySQL database.
 
 ## 1. Local setup
 
+**Requires Python 3.10–3.12.** `pydantic==2.9.2` has no prebuilt wheel for
+Python 3.14, and `pydantic-core` fails to build from source, so `pip install`
+dies partway through. 3.13 is untested — it sits outside the pinned range, so
+treat it as unsupported until someone verifies it. Check what you have before
+creating the venv:
+
+```bash
+python3 --version
+```
+
+If the default is too new, point the venv at a specific interpreter
+(`python3.12 -m venv venv`, or `py -3.12 -m venv venv` on Windows). Then:
+
 ```bash
 python3 -m venv venv
 source venv/bin/activate
@@ -44,6 +57,11 @@ source venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env   # fill in real values
 ```
+
+The Python 3.10–3.12 requirement from §1 applies here too, and the server's
+default `python3` is whatever its distribution ships — check it rather than
+assuming, since the failure surfaces as a confusing build error deep in
+`pip install` rather than a clear version complaint.
 
 Create `/etc/systemd/system/job-tracker-backend.service`:
 
@@ -102,8 +120,7 @@ Every run writes two browsable reports:
 Both are generated output and should be gitignored. Skip them with
 `pytest --no-cov -p no:html`.
 
-Note: `pydantic==2.9.2` has no prebuilt wheel for Python 3.14 (`pydantic-core`
-fails to build from source). Use Python 3.10–3.12 until the pins are updated.
+The suite needs the same Python 3.10–3.12 interpreter as the app — see §1.
 
 ## API overview
 
