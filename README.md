@@ -77,11 +77,56 @@ Update `CORS_ORIGINS` in `.env` to match wherever the frontend is served from
 (e.g. `http://localhost:5173` for dev, or `http://<your-lan-ip>` once you
 build and serve the frontend).
 
+## 6. Tests
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+The suite runs against a throwaway SQLite file, so **no MySQL is required** —
+`tests/conftest.py` sets `DATABASE_URL` before the app is imported, and each
+test starts from empty tables.
+
+> **The tests delete data.** Every table is emptied after each test. This is
+> safe only because `DATABASE_URL` points at throwaway SQLite. Never run the
+> suite with an environment that points at the real database — in particular,
+> a scheduled or deploy-time run must set its own `DATABASE_URL` rather than
+> inheriting the service's `.env`.
+
+Every run writes two browsable reports:
+
+- `htmlcov/index.html` — line-by-line coverage (currently 99%)
+- `report.html` — which tests ran and passed
+
+Both are generated output and should be gitignored. Skip them with
+`pytest --no-cov -p no:html`.
+
+Note: `pydantic==2.9.2` has no prebuilt wheel for Python 3.14 (`pydantic-core`
+fails to build from source). Use Python 3.10–3.12 until the pins are updated.
+
 ## API overview
 
-- `GET /applications` — list, with `search`, `status`, `sort_by`, `sort_dir`, `skip`, `limit` query params
-- `GET /applications/{id}` — get one
+- `GET /applications` — list, with `search`, `status`, `show`, `sort_by`, `sort_dir`, `skip`, `limit` query params. `show` is `active` (default), `archived`, or `all`, and applies independently of `status`
+- `GET /applications/{id}` — get one, including its contacts
 - `POST /applications` — create
 - `PATCH /applications/{id}` — partial update
-- `DELETE /applications/{id}` — delete
+- `POST /applications/{id}/archive` — archive (hide from the default list)
+- `POST /applications/{id}/unarchive` — restore
+- `GET /applications/{id}/contacts` — list contacts
+- `POST /applications/{id}/contacts` — add a contact
+- `PATCH /applications/{id}/contacts/{contact_id}` — partial update
+- `DELETE /applications/{id}/contacts/{contact_id}` — delete
 - `GET /health` — health check
+
+Contact lookups are scoped by `application_id`, so a contact cannot be read or
+modified through another application's URL.
+
+**There is no delete route for applications, by design.** They are archived
+rather than deleted, and never purged. Contacts *can* be deleted outright —
+a contact is a detail of an application, not history worth keeping.
+
+## Configuration
+
+`DATABASE_URL` overrides the `DB_*` parts with a full SQLAlchemy URL when set.
+The test suite uses it; deployment can too.

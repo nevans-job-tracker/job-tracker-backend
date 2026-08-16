@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Environment — .env.example is committed, real .env is not
+.env
+
+# Test and coverage artifacts
+.coverage
+.pytest_cache/
+htmlcov/
+report.html
+
+# Local database files (test suite uses throwaway SQLite)
+*.db
+*.sqlite3
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
