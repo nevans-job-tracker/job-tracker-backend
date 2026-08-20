@@ -1,0 +1,8 @@
+# Files that are executed on the Linux server must keep LF endings regardless
+# of the checkout platform. A CRLF shebang fails as "bad interpreter: no such
+# file or directory", which names the interpreter and so reads like a missing
+# binary rather than a line-ending problem.
+*.sh              text eol=lf
+*.service         text eol=lf
+*.timer           text eol=lf
+deploy/motd-*     text eol=lf
