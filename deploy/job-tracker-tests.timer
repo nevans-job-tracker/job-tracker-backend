@@ -1,0 +1,18 @@
+# Nightly test run.
+
+[Unit]
+Description=Nightly Job Tracker test suites
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+
+# If the machine was off at 03:00, run once after it next boots rather than
+# silently skipping the night. A backup-and-test box that is sometimes off
+# would otherwise quietly stop testing.
+Persistent=true
+
+# Single-core CPU: keep the run off the exact minute everything else fires.
+RandomizedDelaySec=900
+
+[Install]
+WantedBy=timers.target

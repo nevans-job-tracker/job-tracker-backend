@@ -1,0 +1,16 @@
+#!/bin/sh
+# Prints the last test result at SSH login.
+#
+# This is the "a failing run has to be visible" half of KAN-26. There is no MTA
+# on this machine, so mail is not an option; the reliable place to put a signal
+# is where you already look every time you connect.
+STATUS=/var/lib/job-tracker/test-status
+[ -r "$STATUS" ] || exit 0
+. "$STATUS"
+if [ "$result" = PASS ]; then
+    printf '\n  Job Tracker tests: PASS  (%s)\n\n' "$finished"
+else
+    printf '\n  \033[1;31m*** Job Tracker tests: FAIL ***\033[0m  (%s)\n' "$finished"
+    printf '  backend exit=%s  frontend exit=%s\n' "$backend_exit" "$frontend_exit"
+    printf '  journalctl -u job-tracker-tests -n 50\n\n'
+fi

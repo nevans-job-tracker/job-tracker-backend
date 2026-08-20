@@ -24,6 +24,26 @@ from fastapi.testclient import TestClient  # noqa: E402
 from app.database import Base, engine  # noqa: E402
 from app.main import app  # noqa: E402
 
+# Hard stop, not a comment. Every table is emptied after each test, so this
+# suite pointed at a real database destroys it.
+#
+# The override above only works because this module is imported before anything
+# else touches app.config — Settings is built once, at import time. On a
+# deployed server, app/.env holds live credentials and sits in the working
+# directory, so if some plugin or a future import reordering reached app.config
+# first, Settings would already carry the production URL and the override would
+# arrive too late to matter.
+#
+# Rather than trust that ordering, check the engine we actually got.
+if engine.url.get_backend_name() != "sqlite":
+    raise RuntimeError(
+        "Refusing to run: the test suite must use SQLite, but the engine is "
+        f"'{engine.url.render_as_string(hide_password=True)}'. Every table is "
+        "emptied after each test, so running against this database would "
+        "destroy data. Something imported app.config before conftest set "
+        "DATABASE_URL."
+    )
+
 ALEMBIC_INI = Path(__file__).resolve().parent.parent / "alembic.ini"
 
 

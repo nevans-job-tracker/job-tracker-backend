@@ -1,0 +1,19 @@
+# Runs both test suites. Triggered by job-tracker-tests.timer.
+#
+# Runs as nicholas rather than the jobtracker service account: the suites write
+# nothing important, but npm and pytest expect a writable tree, and jobtracker
+# deliberately has no write access to /opt (see job-tracker-backend.service).
+#
+# The database protection is NOT user separation — it is run-tests.sh setting
+# its own DATABASE_URL, plus the engine check in tests/conftest.py that fails
+# closed regardless of who runs it.
+
+[Unit]
+Description=Job Tracker test suites
+Documentation=https://github.com/nevans-job-tracker/job-tracker-backend
+
+[Service]
+Type=oneshot
+User=nicholas
+ExecStart=/opt/job-tracker-backend/deploy/run-tests.sh
+TimeoutStartSec=1800
