@@ -1,0 +1,55 @@
+# Job Tracker — FastAPI backend under systemd.
+#
+# Install:
+#   sudo cp deploy/job-tracker-backend.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now job-tracker-backend
+#
+# Assumes the layout from KAN-21: repo at /opt/job-tracker-backend, venv at
+# .venv inside it, owned nicholas:jobtracker with the directory setgid 2750 so
+# the service account can read everything and write nothing.
+
+[Unit]
+Description=Job Tracker FastAPI backend
+Documentation=https://github.com/nevans-job-tracker/job-tracker-backend
+After=network-online.target mariadb.service
+Wants=network-online.target mariadb.service
+
+[Service]
+Type=exec
+User=jobtracker
+Group=jobtracker
+WorkingDirectory=/opt/job-tracker-backend
+EnvironmentFile=/opt/job-tracker-backend/.env
+
+# Alembic owns the schema outright; the app creates nothing at startup
+# (KAN-16). Running this before every start means a deploy carrying a new
+# revision cannot bring up a service whose schema is behind its code.
+# Idempotent — a no-op when already at head.
+ExecStartPre=/opt/job-tracker-backend/.venv/bin/alembic upgrade head
+
+# --host 127.0.0.1, never 0.0.0.0. nginx is the only route in (KAN-20).
+# Binding all interfaces would publish the API and /docs directly on the LAN
+# as a second door — the surface REQUIREMENTS.md 6.1 says must stay closed
+# until authentication exists.
+ExecStart=/opt/job-tracker-backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+
+Restart=on-failure
+RestartSec=5
+
+# The service reads its own tree and talks to MariaDB on loopback. Nothing
+# else. ProtectSystem=strict makes the filesystem read-only with no
+# ReadWritePaths exception, which costs nothing here: the directory is mode
+# 2750 owned by another user, so the group already has r-x and not w. The
+# service cannot rewrite its own code even if something tried.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+
+# Byte-code caching would be pointless against a read-only tree, and each
+# failed write is wasted work on a single-core CPU.
+Environment=PYTHONDONTWRITEBYTECODE=1
+
+[Install]
+WantedBy=multi-user.target

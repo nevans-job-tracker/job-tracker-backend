@@ -1,6 +1,8 @@
 # Job Tracker — Backend (FastAPI)
 
-REST API for tracking job applications. Talks to a MySQL database.
+REST API for tracking job applications. Talks to MariaDB over the MySQL wire
+protocol (`mysql+pymysql://`). Oracle MySQL works equally well — nothing here
+is specific to either.
 
 ## 1. Local setup
 
@@ -23,17 +25,27 @@ source venv/bin/activate
 pip install -r requirements.txt
 
 cp .env.example .env
-# edit .env with your MySQL credentials
+# edit .env with your database credentials
 ```
 
-## 2. Create the MySQL database and user
+## 2. Create the database and user
+
+The deployed server runs **MariaDB** from Debian's own archive (KAN-22). On
+Debian the root account authenticates over the unix socket, so `sudo mariadb`
+gets you a prompt with no password to manage.
 
 ```sql
-CREATE DATABASE job_tracker CHARACTER SET utf8mb4;
+CREATE DATABASE job_tracker CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER 'job_tracker'@'localhost' IDENTIFIED BY 'changeme';
 GRANT ALL PRIVILEGES ON job_tracker.* TO 'job_tracker'@'localhost';
 FLUSH PRIVILEGES;
 ```
+
+Grant on `job_tracker.*`, never `*.*` — the application user has no business
+outside its own database. Generate the password on the machine
+(`openssl rand -base64 32 | tr -dc 'A-Za-z0-9' | head -c 28`) and keep it
+alphanumeric: the SQLAlchemy URL is assembled by string interpolation, so a
+`@` or `/` in the password corrupts it.
 
 Then build the schema by migrating:
 
@@ -43,7 +55,7 @@ alembic upgrade head
 
 **The app does not create tables.** It has no `create_all` call, so starting it
 against a database that has not been migrated fails on the first query that
-touches a table — `no such table: applications` or the MySQL equivalent. That
+touches a table — `no such table: applications`, or the server's equivalent. That
 is deliberate: one mechanism owns the schema. See §7.
 
 Note that `/health` still answers `200` on an un-migrated database, since it
@@ -78,35 +90,28 @@ assuming, since the failure surfaces as a confusing build error deep in
 **`alembic upgrade head` has to run on every deploy that carries a new
 revision, before the service restarts.** The app no longer creates or alters
 schema, so a deploy that skips it starts a service whose queries fail against a
-schema that is behind the code. Wiring this into the deploy step rather than
-leaving it as a remembered manual command is part of KAN-14 — the shape depends
-on the serving stack chosen there.
+schema behind its code. That is no longer a command to remember — the unit
+below runs it as `ExecStartPre` on every start.
 
-Create `/etc/systemd/system/job-tracker-backend.service`:
-
-```ini
-[Unit]
-Description=Job Tracker FastAPI backend
-After=network.target mysql.service
-
-[Service]
-User=youruser
-WorkingDirectory=/opt/job-tracker-backend
-EnvironmentFile=/opt/job-tracker-backend/.env
-ExecStart=/opt/job-tracker-backend/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Then:
+The unit is committed at [`deploy/job-tracker-backend.service`](deploy/job-tracker-backend.service)
+rather than reproduced here, so it lives under version control where a change
+to it shows up in a diff:
 
 ```bash
+sudo cp deploy/job-tracker-backend.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now job-tracker-backend
-sudo systemctl status job-tracker-backend
 ```
+
+Three things in it are load-bearing:
+
+- **`ExecStartPre=... alembic upgrade head`** runs migrations before every
+  start, so a deploy carrying a new revision cannot bring the service up
+  against a schema that is behind its code. It is idempotent.
+- **`User=jobtracker`** — a system account with no shell and no login, which
+  owns nothing. The tree is owned by your login user with the directory setgid,
+  so the service reads everything and can write nothing.
+- **`ProtectSystem=strict`** with no `ReadWritePaths` exception.
 
 **`--host 127.0.0.1`, not `0.0.0.0`.** nginx is the only thing that talks to
 this service, and it does so over loopback (KAN-20). Binding to all interfaces
@@ -137,7 +142,8 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-The suite runs against a throwaway SQLite file, so **no MySQL is required** —
+The suite runs against a throwaway SQLite file, so **no database server is
+required** —
 `tests/conftest.py` sets `DATABASE_URL` before the app is imported, and each
 test starts from empty tables.
 
@@ -194,10 +200,12 @@ it does not decide. Two things in particular:
 - It only sees what SQLAlchemy models declare. Anything applied to the database
   by hand is invisible to it, and it will happily propose dropping it.
 - It renders against whichever dialect it connected to. Generating on SQLite
-  and deploying to MySQL leaks SQLite spellings into the migration — that is
+  and deploying to MariaDB leaks SQLite spellings into the migration — that is
   exactly what happened to the baseline, where `func.now()` came out as the
-  literal `(CURRENT_TIMESTAMP)`. Prefer generating against a database of the
-  same engine you deploy to.
+  literal `(CURRENT_TIMESTAMP)`. It was corrected by hand and later verified
+  against the real server, where it renders as `current_timestamp()` and
+  autogenerate reports no drift. Prefer generating against the same engine you
+  deploy to.
 
 ### The test suite migrates too
 
