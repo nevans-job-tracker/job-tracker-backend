@@ -4,6 +4,7 @@ from sqlalchemy import (
     Column,
     ForeignKey,
     Integer,
+    SmallInteger,
     String,
     Text,
     Date,
@@ -33,6 +34,23 @@ class ApplicationStatus(str, enum.Enum):
     interested = "interested"
 
 
+class CompanySize(str, enum.Enum):
+    """Wellfound's bands, adopted rather than invented so the values match what
+    the postings already say. See REQUIREMENTS.md §2 for the trade-off.
+
+    Declared smallest to largest deliberately. MySQL and MariaDB store an ENUM
+    as its ordinal, so this order is what makes `ORDER BY company_size` mean
+    band order instead of alphabetical.
+    """
+
+    seed = "seed"  # 1-10 employees
+    early = "early"  # 11-50
+    mid_size = "mid_size"  # 51-200
+    large = "large"  # 201-500
+    very_large = "very_large"  # 501-1000
+    massive = "massive"  # 1001+
+
+
 class Application(Base):
     __tablename__ = "applications"
 
@@ -42,6 +60,11 @@ class Application(Base):
     job_link = Column(String(1024), nullable=True)
     source = Column(String(255), nullable=True)  # e.g. LinkedIn, referral
     location = Column(String(255), nullable=True)
+
+    # Both nullable: a posting often states neither, and guessing is worse than
+    # leaving it blank. See REQUIREMENTS.md §2.
+    company_size = Column(Enum(CompanySize), nullable=True)
+    years_experience_min = Column(SmallInteger, nullable=True)
 
     status = Column(
         Enum(ApplicationStatus), nullable=False, default=ApplicationStatus.applied

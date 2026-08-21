@@ -42,6 +42,13 @@ If `docs/` is empty after cloning, run `git submodule update --init`.
 - **`date_applied` is nullable** (KAN-31): a job can be tracked before it is
   applied for. A create with no date and no stated status is stored as
   `interested` rather than `applied`.
+- **`company_size` is an enum of Wellfound's six bands**, declared smallest to
+  largest. That order is load-bearing: MariaDB stores an ENUM as its ordinal,
+  so it is what makes sorting by the column mean band order. Note this also
+  means enum columns sort differently under SQLite, which is what the tests
+  run on — see `REQUIREMENTS.md` §4.2.
+- **`years_experience_min` is a nullable smallint**, minimum only. `0` is a
+  real answer (entry level) and distinct from NULL; negatives are rejected.
 - **A NULL sorts as though it were greater than every real value** in
   `crud.list_applications`, so the default date-descending view leads with jobs
   not yet applied to. Written as a leading `IS NULL` key because MariaDB has no
@@ -55,7 +62,7 @@ If `docs/` is empty after cloning, run `git submodule update --init`.
 ## Testing
 
 ```bash
-pytest        # 120 tests, 99% statements
+pytest        # 135 tests, 99% statements
 ```
 
 Runs against throwaway SQLite via a `DATABASE_URL` override, so no MySQL is

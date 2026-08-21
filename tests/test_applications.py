@@ -118,6 +118,102 @@ class TestUndated:
         assert body["items"][0]["company"] == "Zeta"
 
 
+class TestCompanySizeAndExperience:
+    """Two fields for judging fit at a glance (KAN-35, KAN-32)."""
+
+    SIZES = ["seed", "early", "mid_size", "large", "very_large", "massive"]
+
+    def test_round_trips_through_create_detail_and_list(
+        self, client, application_payload
+    ):
+        created = client.post(
+            "/applications",
+            json={
+                **application_payload,
+                "company_size": "mid_size",
+                "years_experience_min": 5,
+            },
+        ).json()
+        assert created["company_size"] == "mid_size"
+        assert created["years_experience_min"] == 5
+
+        detail = client.get(f"/applications/{created['id']}").json()
+        assert detail["company_size"] == "mid_size"
+        assert detail["years_experience_min"] == 5
+
+        row = client.get("/applications").json()["items"][0]
+        assert row["company_size"] == "mid_size"
+        assert row["years_experience_min"] == 5
+
+    def test_both_default_to_absent(self, client, make_application):
+        """A posting often states neither, and guessing is worse than blank."""
+        created = make_application()
+        assert created["company_size"] is None
+        assert created["years_experience_min"] is None
+
+    @pytest.mark.parametrize("size", SIZES)
+    def test_every_wellfound_band_is_accepted(
+        self, client, application_payload, size
+    ):
+        response = client.post(
+            "/applications", json={**application_payload, "company_size": size}
+        )
+        assert response.status_code == 201, response.text
+        assert response.json()["company_size"] == size
+
+    def test_a_band_outside_the_taxonomy_is_rejected(
+        self, client, application_payload
+    ):
+        # The point of a closed list is that it is closed; "medium" is the kind
+        # of near-miss that would otherwise sit alongside "mid_size" forever.
+        response = client.post(
+            "/applications", json={**application_payload, "company_size": "medium"}
+        )
+        assert response.status_code == 422
+
+    def test_negative_experience_is_rejected(self, client, application_payload):
+        response = client.post(
+            "/applications",
+            json={**application_payload, "years_experience_min": -1},
+        )
+        assert response.status_code == 422
+
+    def test_zero_experience_is_a_real_answer(self, client, application_payload):
+        """An entry-level posting states no minimum, which is not the same as
+        not stating one — so 0 must be storable and distinct from null."""
+        response = client.post(
+            "/applications",
+            json={**application_payload, "years_experience_min": 0},
+        )
+        assert response.status_code == 201
+        assert response.json()["years_experience_min"] == 0
+
+    def test_both_can_be_set_by_patch(self, client, make_application):
+        created = make_application()
+        patched = client.patch(
+            f"/applications/{created['id']}",
+            json={"company_size": "massive", "years_experience_min": 8},
+        ).json()
+        assert patched["company_size"] == "massive"
+        assert patched["years_experience_min"] == 8
+
+    def test_both_can_be_cleared_by_patch(self, client, application_payload):
+        created = client.post(
+            "/applications",
+            json={
+                **application_payload,
+                "company_size": "seed",
+                "years_experience_min": 2,
+            },
+        ).json()
+        patched = client.patch(
+            f"/applications/{created['id']}",
+            json={"company_size": None, "years_experience_min": None},
+        ).json()
+        assert patched["company_size"] is None
+        assert patched["years_experience_min"] is None
+
+
 class TestRead:
     def test_detail_includes_contacts(self, client, make_application):
         created = make_application()
@@ -225,6 +321,7 @@ class TestFilterAndSort:
 
     @pytest.mark.parametrize(
         "column", ["company", "role_title", "location", "source", "status",
+                   "company_size", "years_experience_min",
                    "date_applied", "next_action_date", "salary_min", "salary_max",
                    "created_at"]
     )

@@ -5,13 +5,14 @@ from typing import List, Optional
 from pydantic import (
     BaseModel,
     ConfigDict,
+    Field,
     HttpUrl,
     TypeAdapter,
     field_validator,
     model_validator,
 )
 
-from app.models import ApplicationStatus
+from app.models import ApplicationStatus, CompanySize
 
 _http_url = TypeAdapter(HttpUrl)
 
@@ -67,6 +68,11 @@ class ApplicationBase(BaseModel):
     job_link: Optional[str] = None
     source: Optional[str] = None
     location: Optional[str] = None
+    company_size: Optional[CompanySize] = None
+    # Lower bound only. Negative years is not a value anyone means to enter, so
+    # it is rejected rather than stored; there is no equally obvious upper bound
+    # — 30 is unusual but real — so none is imposed.
+    years_experience_min: Optional[int] = Field(default=None, ge=0)
     status: ApplicationStatus = ApplicationStatus.applied
     salary_min: Optional[Decimal] = None
     salary_max: Optional[Decimal] = None
@@ -109,6 +115,8 @@ class ApplicationUpdate(BaseModel):
     job_link: Optional[str] = None
     source: Optional[str] = None
     location: Optional[str] = None
+    company_size: Optional[CompanySize] = None
+    years_experience_min: Optional[int] = Field(default=None, ge=0)
     status: Optional[ApplicationStatus] = None
     salary_min: Optional[Decimal] = None
     salary_max: Optional[Decimal] = None

@@ -30,7 +30,11 @@ def read_applications(
     show: str = Query("active", pattern="^(active|archived|all)$"),
     sort_by: str = Query(
         "date_applied",
-        pattern="^(company|role_title|location|source|status|date_applied|next_action_date|salary_min|salary_max|created_at)$",
+        pattern=(
+            "^(company|role_title|location|source|status|company_size|"
+            "years_experience_min|date_applied|next_action_date|"
+            "salary_min|salary_max|created_at)$"
+        ),
     ),
     sort_dir: str = Query("desc", pattern="^(asc|desc)$"),
     skip: int = 0,
