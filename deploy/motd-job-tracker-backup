@@ -1,0 +1,29 @@
+#!/bin/sh
+# Reports the last backup result at SSH login.
+#
+# There is no MTA on this machine, so mail is not an option. A backup whose
+# failures land in a log nobody reads is worse than no backup: it produces
+# confidence without protection.
+STATUS=/var/lib/job-tracker/backup-status
+if [ ! -r "$STATUS" ]; then
+    printf '\n  \033[1;33mJob Tracker backup: never run\033[0m\n\n'
+    exit 0
+fi
+. "$STATUS"
+
+# A backup that has not run for two days is a failure even if the last result
+# said PASS -- the timer itself may have stopped.
+age_days=$(( ( $(date +%s) - $(date -d "$finished" +%s) ) / 86400 ))
+
+if [ "$result" = PASS ] && [ "$age_days" -le 1 ]; then
+    printf '\n  Job Tracker backup: PASS  (%s, %s bytes, %s daily / %s monthly)\n\n' \
+        "$finished" "$bytes" "$daily_kept" "$monthly_kept"
+elif [ "$result" = PASS ]; then
+    printf '\n  \033[1;33m*** Job Tracker backup is %s days old ***\033[0m  (last: %s)\n' \
+        "$age_days" "$finished"
+    printf '  systemctl list-timers job-tracker-backup\n\n'
+else
+    printf '\n  \033[1;31m*** Job Tracker backup: FAIL ***\033[0m  (%s)\n' "$finished"
+    printf '  %s\n' "$detail"
+    printf '  journalctl -u job-tracker-backup -n 50\n\n'
+fi

@@ -1,0 +1,18 @@
+# Nightly backup, an hour before the test run so the two never contend for the
+# single CPU core.
+
+[Unit]
+Description=Nightly Job Tracker off-site backup
+
+[Timer]
+OnCalendar=*-*-* 02:00:00
+
+# If the machine was off overnight, run once after it next boots. A backup that
+# silently skips the nights the machine happened to be off is exactly the kind
+# that looks healthy until a restore.
+Persistent=true
+
+RandomizedDelaySec=600
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,17 @@
+# Nightly off-site backup. Triggered by job-tracker-backup.timer.
+#
+# Runs as nicholas because the script reads the backend's .env for database
+# credentials and ~/.config/job-tracker for the B2 key and the encryption
+# passphrase. Those three files are mode 600 and owned by that user.
+
+[Unit]
+Description=Job Tracker off-site backup
+Documentation=https://github.com/nevans-job-tracker/job-tracker-backend
+After=network-online.target mariadb.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=nicholas
+ExecStart=/opt/job-tracker-backend/deploy/backup.sh
+TimeoutStartSec=1800
