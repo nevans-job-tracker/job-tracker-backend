@@ -30,9 +30,23 @@ fail() { echo "ERROR: $*" >&2; write_status FAIL "$*"; exit 1; }
 
 write_status() {
     mkdir -p "$(dirname "$STATUS")"
+    # `detail` is free text and the MOTD hook sources this file, so it is
+    # stripped of anything the shell would act on and then quoted. Left
+    # unquoted, every failure message here contains a space, so the hook
+    # set detail to the first word and tried to *run* the rest — which for
+    # the likeliest failure is the path to backup.env itself.
+    #
+    # The character set is given in octal on purpose. Written literally it
+    # has to survive this file, the shell and tr intact, and a backtick in
+    # a bash pattern opens a command substitution — which is exactly the
+    # class of mistake this line exists to prevent.
+    #   042 "   044 $   047 '   140 `   134 \   012 LF   015 CR
+    local detail_clean
+    detail_clean=$(printf '%s' "${2:-}" \
+        | tr -d '\042\044\047\140\134' | tr '\012\015' '  ')
     cat > "$STATUS" <<STATUSEOF
 result=$1
-detail=${2:-}
+detail="$detail_clean"
 finished=$(date --iso-8601=seconds)
 artifact=${ARTIFACT_NAME:-}
 bytes=${ARTIFACT_BYTES:-}

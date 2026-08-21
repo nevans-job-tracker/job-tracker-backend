@@ -1,0 +1,57 @@
+#!/bin/sh
+# Reports the last restore rehearsal at SSH login.
+#
+# Unlike the backup hook next door, AGE IS NOT THE SIGNAL HERE. Weeks between
+# rehearsals is expected and fine. What matters is whether a migration has
+# shipped since the last one: a rehearsal from three months ago is still good
+# if nothing changed, and one from yesterday is worthless if a revision landed
+# this morning. So this compares revisions, not dates.
+STATUS=/var/lib/job-tracker/restore-status
+VERSIONS=/opt/job-tracker-backend/alembic/versions
+SCRIPT=/opt/job-tracker-backend/deploy/restore.sh
+
+if [ ! -r "$STATUS" ]; then
+    printf '\n  \033[1;33mJob Tracker restore rehearsal: never run\033[0m\n'
+    printf '  %s\n\n' "$SCRIPT"
+    exit 0
+fi
+. "$STATUS"
+
+# Not cleared by anything else, deliberately: a rehearsal that did not match is
+# the finding, and it should keep saying so until a passing run replaces it.
+if [ "$result" != PASS ]; then
+    printf '\n  \033[1;31m*** Job Tracker restore rehearsal: %s ***\033[0m  (%s)\n' \
+        "$result" "$finished"
+    if [ -n "$detail" ]; then printf '  %s\n' "$detail"; fi
+    printf '  %s\n\n' "$SCRIPT"
+    exit 0
+fi
+
+# The head revision is the one no other revision names as its down_revision.
+#
+# Read off disk rather than out of the database, so this stays instant and
+# needs no credentials at login. The consequence is that it counts revisions
+# that have been pulled but not yet migrated — which is the right way round:
+# that is still a rehearsal you owe.
+head=
+if [ -d "$VERSIONS" ]; then
+    revs=$(sed -n "s/^revision: str = '\([^']*\)'.*/\1/p" "$VERSIONS"/*.py 2>/dev/null)
+    downs=$(sed -n "s/^down_revision: [^=]*= '\([^']*\)'.*/\1/p" "$VERSIONS"/*.py 2>/dev/null)
+    for r in $revs; do
+        if ! printf '%s\n' "$downs" | grep -qx "$r"; then head=$r; fi
+    done
+fi
+
+# An unreadable or branched versions directory leaves head empty or ambiguous.
+# Stay quiet rather than cry wolf: a false "out of date" every login is how a
+# warning gets ignored.
+if [ -n "$head" ] && [ "$head" != "$revision" ]; then
+    printf '\n  \033[1;33m*** Job Tracker restore rehearsal is out of date ***\033[0m\n'
+    printf '  verified against %s on %s\n' "$revision" "$finished"
+    printf '  newest revision is now %s\n' "$head"
+    printf '  %s   (run it after a backup, not before)\n\n' "$SCRIPT"
+else
+    printf '\n  Job Tracker restore: PASS  (%s, %ss, revision %s)\n\n' \
+        "$finished" "$elapsed_seconds" "$revision"
+fi
+exit 0

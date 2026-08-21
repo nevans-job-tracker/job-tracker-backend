@@ -25,8 +25,49 @@ BACKEND=/opt/job-tracker-backend
 CONF="$HOME/.config/job-tracker"
 SCRATCH_DB=job_tracker_restore_check
 
+# Overridable so the status-writing path can be exercised without clobbering
+# the real record. Nothing else should set it.
+STATUS=${RESTORE_STATUS:-/var/lib/job-tracker/restore-status}
+
 START=$(date +%s)
-fail() { echo "ERROR: $*" >&2; exit 1; }
+fail() { echo "ERROR: $*" >&2; write_status FAIL "$*"; exit 1; }
+
+# Until this existed, a rehearsal left nothing behind: it printed to the
+# terminal, dropped the scratch database and exited. So "when was this last
+# verified, and against which schema?" was answerable only from memory — which
+# made the repeat-after-a-migration rule rest on someone remembering it.
+#
+# `revision` is the field that matters. A rehearsal from three months ago is
+# fine if nothing has shipped since; one from yesterday is worthless if a
+# migration shipped this morning. Age is not the signal, drift is.
+write_status() {
+    mkdir -p "$(dirname "$STATUS")" 2>/dev/null
+    # `detail` is free text and the MOTD hook sources this file, so it is
+    # stripped of anything the shell would act on and then quoted. Left
+    # unquoted, every failure message here contains a space, so the hook
+    # set detail to the first word and tried to *run* the rest — which for
+    # the likeliest failure is the path to backup.env itself.
+    #
+    # The character set is given in octal on purpose. Written literally it
+    # has to survive this file, the shell and tr intact, and a backtick in
+    # a bash pattern opens a command substitution — which is exactly the
+    # class of mistake this line exists to prevent.
+    #   042 "   044 $   047 '   140 `   134 \   012 LF   015 CR
+    local detail_clean
+    detail_clean=$(printf '%s' "${2:-}" \
+        | tr -d '\042\044\047\140\134' | tr '\012\015' '  ')
+    cat > "$STATUS" <<STATUSEOF
+result=$1
+detail="$detail_clean"
+finished=$(date --iso-8601=seconds)
+elapsed_seconds=$(( $(date +%s) - START ))
+artifact=${ARTIFACT:-}
+revision=${REVISION:-}
+live_revision=${LIVE_REVISION:-}
+STATUSEOF
+}
+
+ARTIFACT=""; REVISION=""; LIVE_REVISION=""
 
 # --- config ---------------------------------------------------------------
 [ -r "$CONF/backup.env" ]  || fail "missing $CONF/backup.env"
@@ -100,7 +141,14 @@ compare "applications"           "SELECT COUNT(*) FROM applications"
 compare "contacts"               "SELECT COUNT(*) FROM contacts"
 compare "archived applications"  "SELECT COUNT(*) FROM applications WHERE archived_at IS NOT NULL"
 compare "applications w/ contact" "SELECT COUNT(DISTINCT application_id) FROM contacts"
-compare "alembic revision"       "SELECT version_num FROM alembic_version"
+REVISION_SQL="SELECT version_num FROM alembic_version"
+compare "alembic revision"       "$REVISION_SQL"
+
+# Captured for the status file as well as the table above. This is the field
+# the repeat-after-a-migration rule turns on, so it is recorded rather than
+# only printed.
+REVISION=$(q "$REVISION_SQL")
+LIVE_REVISION=$(live "$REVISION_SQL")
 
 # Spot-checks: these exercise archived_at and the foreign key, rather than just
 # confirming the tables have the right shape.
@@ -119,8 +167,14 @@ sudo mariadb -e "DROP DATABASE \`$SCRATCH_DB\`;" && echo "scratch database dropp
 ELAPSED=$(( $(date +%s) - START ))
 echo
 if [ "$ok" = 1 ]; then
+    write_status PASS ""
     echo "=== RESTORE VERIFIED in ${ELAPSED}s ==="
+    echo "recorded in $STATUS (revision $REVISION)"
 else
+    # Left in place until a passing run replaces it. Nothing else clears it,
+    # which is deliberate: a rehearsal that did not match is the finding, and
+    # it should keep saying so at every login until someone deals with it.
+    write_status MISMATCH "restored copy did not match the live database"
     echo "=== RESTORE MISMATCH after ${ELAPSED}s ==="
     exit 1
 fi
