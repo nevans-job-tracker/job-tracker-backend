@@ -38,10 +38,11 @@ artifact=${ARTIFACT_NAME:-}
 bytes=${ARTIFACT_BYTES:-}
 daily_kept=${DAILY_COUNT:-}
 monthly_kept=${MONTHLY_COUNT:-}
+verified_tables=${VERIFIED_TABLES:-}
 STATUSEOF
 }
 
-ARTIFACT_NAME=""; ARTIFACT_BYTES=""; DAILY_COUNT=""; MONTHLY_COUNT=""
+ARTIFACT_NAME=""; ARTIFACT_BYTES=""; DAILY_COUNT=""; MONTHLY_COUNT=""; VERIFIED_TABLES=""
 
 # --- config ---------------------------------------------------------------
 [ -r "$CONF/backup.env" ]  || fail "missing $CONF/backup.env"
@@ -97,12 +98,33 @@ fi
 ARTIFACT_BYTES=$(stat -c%s "$ARTIFACT")
 [ "$ARTIFACT_BYTES" -gt 0 ] || fail "encrypted artifact is empty"
 
-# Cheap structural check that this is really an OpenPGP message and not, say,
-# an error page or a truncated stream.
-gpg --batch --list-packets "$ARTIFACT" >/dev/null 2>&1 \
-    || fail "artifact is not a readable OpenPGP message"
+# Verify by round-tripping, not by inspecting. Decrypt it, decompress it, and
+# confirm the tables are actually in there.
+#
+# This proves three things a structural check cannot: that the passphrase on
+# this machine really opens the artifact, that the gzip stream is intact, and
+# that the dump has content rather than being an error message captured where
+# SQL was expected.
+#
+# It also makes every nightly run a partial restore test, which is the part of
+# KAN-19 that can be automated.
+#
+# (An earlier version used `gpg --list-packets` here. On symmetric data that
+# tries to decrypt, wants a passphrase, and fails under a timer with "problem
+# with the agent: Inappropriate ioctl for device" -- rejecting good artifacts.)
+if ! gpg --batch --quiet --decrypt --passphrase-file "$CONF/backup.pass" \
+        "$ARTIFACT" 2>/dev/null | gunzip > "$WORK/verify.sql" 2>/dev/null
+then
+    fail "artifact failed round-trip: could not decrypt and decompress it"
+fi
 
-echo "built $ARTIFACT_NAME ($ARTIFACT_BYTES bytes)"
+for table in applications contacts; do
+    grep -q "^CREATE TABLE .$table." "$WORK/verify.sql" \
+        || fail "round-trip succeeded but table '$table' is missing from the dump"
+done
+VERIFIED_TABLES=$(grep -c '^CREATE TABLE' "$WORK/verify.sql")
+
+echo "built $ARTIFACT_NAME ($ARTIFACT_BYTES bytes), round-trip OK, $VERIFIED_TABLES tables"
 
 # --- upload ---------------------------------------------------------------
 "${RCLONE[@]}" copyto "$ARTIFACT" "$REMOTE/daily/$ARTIFACT_NAME" \
