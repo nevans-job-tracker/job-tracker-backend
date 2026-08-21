@@ -2,7 +2,14 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import List, Optional
 
-from pydantic import BaseModel, ConfigDict, HttpUrl, TypeAdapter, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    HttpUrl,
+    TypeAdapter,
+    field_validator,
+    model_validator,
+)
 
 from app.models import ApplicationStatus
 
@@ -64,7 +71,9 @@ class ApplicationBase(BaseModel):
     salary_min: Optional[Decimal] = None
     salary_max: Optional[Decimal] = None
     salary_currency: Optional[str] = "USD"
-    date_applied: date
+    # Optional: a job being tracked before it is applied for has no date yet.
+    # See REQUIREMENTS.md §2.
+    date_applied: Optional[date] = None
     notes: Optional[str] = None
     next_action: Optional[str] = None
     next_action_date: Optional[date] = None
@@ -74,7 +83,24 @@ class ApplicationBase(BaseModel):
 
 
 class ApplicationCreate(ApplicationBase):
-    pass
+    @model_validator(mode="after")
+    def _undated_means_interested(self):
+        """A create with no date and no stated status is an intention, not an
+        application.
+
+        `applied` is the right default for the overwhelming majority of
+        records, so it stays the declared one — but a record with no
+        `date_applied` cannot be an application, and defaulting it to `applied`
+        would produce exactly the row this story exists to prevent: something
+        labelled Applied with nothing to say when.
+
+        `model_fields_set` is what makes this safe to do silently. An explicit
+        `"status": "applied"` in the request body is honoured even without a
+        date; only an *absent* status is reinterpreted.
+        """
+        if self.date_applied is None and "status" not in self.model_fields_set:
+            self.status = ApplicationStatus.interested
+        return self
 
 
 class ApplicationUpdate(BaseModel):

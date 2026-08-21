@@ -50,10 +50,33 @@ def list_applications(
         query = query.filter(models.Application.status == status)
 
     sort_column = getattr(models.Application, sort_by, models.Application.date_applied)
+
+    # A NULL sorts as though it were greater than every real value.
+    #
+    # This is a decision, not the database's default (KAN-31). An application
+    # you have not sent has no `date_applied` because that date, if it ever
+    # exists, is in the future — so treating NULL as the largest value makes
+    # the ordering a total order that means something, rather than a pile of
+    # rows dumped at whichever end the dialect happens to choose.
+    #
+    # What it buys: the list's default sort is `date_applied` descending, so
+    # jobs not yet applied to surface at the top, where the next action is.
+    # Inherited behaviour put them last — below a "Load more" button on any
+    # list past 50 rows, which is to say off-screen and effectively lost.
+    # Reversing the sort still reverses the whole list; nothing is pinned.
+    #
+    # Applied to every sortable column rather than special-cased for dates, so
+    # there is one rule. Ascending now puts empty Location/Source/Next action
+    # last, which is the conventional expectation and was previously reversed.
+    #
+    # Expressed as a leading `IS NULL` key because MariaDB has no
+    # `NULLS FIRST` / `NULLS LAST`; the comparison yields 0 or 1 on both it and
+    # SQLite, so the two agree.
+    missing = sort_column.is_(None)
     if sort_dir == "asc":
-        query = query.order_by(sort_column.asc())
+        query = query.order_by(missing.asc(), sort_column.asc())
     else:
-        query = query.order_by(sort_column.desc())
+        query = query.order_by(missing.desc(), sort_column.desc())
 
     total = query.count()
     items = query.offset(skip).limit(limit).all()

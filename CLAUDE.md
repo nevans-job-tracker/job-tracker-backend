@@ -28,13 +28,24 @@ If `docs/` is empty after cloning, run `git submodule update --init`.
 - SQLAlchemy ORM. Two tables: `applications`, and `contacts` related many-to-one
   to it. Contacts are managed through endpoints nested under their application
   and scoped by `application_id`.
-- Tables auto-created on startup via `Base.metadata.create_all` — no migration
-  tool set up yet. Adequate while the database does not yet exist; Alembic is
-  worth adding before the first schema change *after* real data exists (KAN-10).
+- **Alembic owns the schema outright.** The `Base.metadata.create_all` call is
+  gone (KAN-16) — `alembic upgrade head` is the only way tables come into
+  existence, and the systemd unit's `ExecStartPre` runs it on every start.
+  Starting against an un-migrated database fails on the first query that
+  touches a table, deliberately.
 - CORS origins configured via `.env` (`CORS_ORIGINS`) so the frontend's
   deployed origin must be added explicitly.
-- Status field is an enum: applied, phone_screen, interview, offer,
-  rejected, ghosted, withdrawn.
+- Status field is an enum: applied, phone_screen, interview, offer, rejected,
+  ghosted, withdrawn, interested. `interested` is last because MariaDB stores an
+  ENUM as its ordinal and appending is the only change that leaves existing rows
+  alone — the frontend shows it first. See `REQUIREMENTS.md` §3.
+- **`date_applied` is nullable** (KAN-31): a job can be tracked before it is
+  applied for. A create with no date and no stated status is stored as
+  `interested` rather than `applied`.
+- **A NULL sorts as though it were greater than every real value** in
+  `crud.list_applications`, so the default date-descending view leads with jobs
+  not yet applied to. Written as a leading `IS NULL` key because MariaDB has no
+  `NULLS FIRST` / `NULLS LAST`. See `REQUIREMENTS.md` §4.2.
 - **Status transitions are deliberately unvalidated** — any status may be set at
   any time. This is a decision, not an oversight; see `REQUIREMENTS.md` §3.
 - **Records are archived, never deleted.** An `archived_at` timestamp marks
@@ -44,7 +55,7 @@ If `docs/` is empty after cloning, run `git submodule update --init`.
 ## Testing
 
 ```bash
-pytest        # 109 tests, 99% statements
+pytest        # 120 tests, 99% statements
 ```
 
 Runs against throwaway SQLite via a `DATABASE_URL` override, so no MySQL is

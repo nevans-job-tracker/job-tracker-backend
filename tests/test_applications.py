@@ -27,7 +27,9 @@ class TestCreate:
         assert body["next_action_date"] == "2026-08-20"
         assert body["job_description"] == "Own the regression suite."
 
-    @pytest.mark.parametrize("missing", ["company", "role_title", "date_applied"])
+    # date_applied is deliberately absent: it became optional in KAN-31 so a
+    # job can be tracked before it is applied for. See TestUndated below.
+    @pytest.mark.parametrize("missing", ["company", "role_title"])
     def test_required_fields_are_enforced(self, client, application_payload, missing):
         payload = {k: v for k, v in application_payload.items() if k != missing}
         assert client.post("/applications", json=payload).status_code == 422
@@ -37,6 +39,83 @@ class TestCreate:
             "/applications", json={**application_payload, "status": "napping"}
         )
         assert response.status_code == 422
+
+
+class TestUndated:
+    """Jobs tracked before they are applied for (KAN-31).
+
+    The two halves have to hold together: a record with no date needs a status
+    that explains why, and `interested` is meaningless while every record must
+    carry a date.
+    """
+
+    def test_creates_without_a_date(self, client):
+        response = client.post(
+            "/applications", json={"company": "Acme Corp", "role_title": "SDET"}
+        )
+        assert response.status_code == 201
+        body = response.json()
+        assert body["date_applied"] is None
+        assert body["status"] == "interested"
+
+    def test_an_explicit_status_survives_a_missing_date(self, client):
+        """Only an *absent* status is reinterpreted. Someone who says `applied`
+        without a date has said something odd but has said it deliberately."""
+        response = client.post(
+            "/applications",
+            json={"company": "Acme Corp", "role_title": "SDET", "status": "applied"},
+        )
+        assert response.json()["status"] == "applied"
+
+    def test_a_dated_record_still_defaults_to_applied(
+        self, client, application_payload
+    ):
+        """The common case is unchanged — the new rule keys off the missing
+        date, not off the status being absent."""
+        response = client.post("/applications", json=application_payload)
+        assert response.json()["status"] == "applied"
+
+    def test_round_trips_through_detail_and_list(self, client):
+        created = client.post(
+            "/applications", json={"company": "Acme Corp", "role_title": "SDET"}
+        ).json()
+
+        detail = client.get(f"/applications/{created['id']}").json()
+        assert detail["date_applied"] is None
+        assert detail["status"] == "interested"
+
+        row = client.get("/applications").json()["items"][0]
+        assert row["date_applied"] is None
+        assert row["status"] == "interested"
+
+    def test_gains_a_date_when_the_application_goes_out(self, client):
+        created = client.post(
+            "/applications", json={"company": "Acme Corp", "role_title": "SDET"}
+        ).json()
+
+        patched = client.patch(
+            f"/applications/{created['id']}",
+            json={"date_applied": "2026-08-21", "status": "applied"},
+        ).json()
+        assert patched["date_applied"] == "2026-08-21"
+        assert patched["status"] == "applied"
+
+    def test_a_date_can_be_cleared_again(self, client, make_application):
+        """Correcting a record entered by mistake, without deleting it —
+        applications are never deleted (§4.1)."""
+        created = make_application()
+        patched = client.patch(
+            f"/applications/{created['id']}", json={"date_applied": None}
+        ).json()
+        assert patched["date_applied"] is None
+
+    def test_interested_is_filterable(self, client, make_application):
+        make_application()
+        client.post("/applications", json={"company": "Zeta", "role_title": "SDET"})
+
+        body = client.get("/applications?status=interested").json()
+        assert body["total"] == 1
+        assert body["items"][0]["company"] == "Zeta"
 
 
 class TestRead:
@@ -166,6 +245,61 @@ class TestFilterAndSort:
             "/applications?status=applied&sort_by=company&sort_dir=desc"
         ).json()["items"]
         assert [i["company"] for i in items] == ["Bravo", "Alpha"]
+
+
+class TestNullSortOrder:
+    """A NULL sorts as though it were greater than every real value (KAN-31).
+
+    This is a decision, not the dialect's default. It is what puts jobs you
+    have not applied to at the *top* of the default view — inherited behaviour
+    dropped them at the bottom, which past 50 rows means below a "Load more"
+    button and effectively out of sight.
+
+    These tests are the only thing pinning it. Nothing else fails if the
+    ordering silently reverts.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _seed(self, client, make_application):
+        make_application(company="Dated older", date_applied="2026-01-01")
+        make_application(company="Dated newer", date_applied="2026-06-01")
+        client.post(
+            "/applications", json={"company": "Undated", "role_title": "SDET"}
+        )
+
+    def _companies(self, client, query=""):
+        return [i["company"] for i in client.get(f"/applications{query}").json()["items"]]
+
+    def test_undated_leads_the_default_view(self, client):
+        """The default sort is date_applied descending — the view the user
+        actually opens."""
+        assert self._companies(client) == ["Undated", "Dated newer", "Dated older"]
+
+    def test_ascending_puts_it_last(self, client):
+        """Reversing the direction reverses the whole list. Nothing is pinned:
+        NULL is the largest value, so oldest-first leaves it at the end."""
+        assert self._companies(client, "?sort_by=date_applied&sort_dir=asc") == [
+            "Dated older",
+            "Dated newer",
+            "Undated",
+        ]
+
+    def test_the_rule_is_not_special_cased_to_dates(self, client, make_application):
+        """One rule for every sortable column, so an empty Location or Source
+        behaves the same way. Ascending puts empties last, which is the
+        conventional expectation and was previously reversed."""
+        make_application(company="Has a location", location="Austin, TX")
+
+        ascending = self._companies(client, "?sort_by=location&sort_dir=asc")
+        assert ascending[0] == "Has a location"
+        assert self._companies(client, "?sort_by=location&sort_dir=desc")[0] != (
+            "Has a location"
+        )
+
+    def test_the_count_is_unaffected(self, client):
+        """Ordering must not leak into the WHERE clause — the undated record is
+        moved, not filtered out."""
+        assert client.get("/applications").json()["total"] == 3
 
 
 class TestPagination:

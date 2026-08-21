@@ -26,6 +26,12 @@ class ApplicationStatus(str, enum.Enum):
     ghosted = "ghosted"
     withdrawn = "withdrawn"
 
+    # Appended rather than placed first, where the lifecycle would put it.
+    # MySQL and MariaDB store an ENUM as its ordinal, so appending is the only
+    # change that leaves existing rows meaning what they meant. The order the
+    # user sees is set by STATUS_LABELS in the frontend, not here.
+    interested = "interested"
+
 
 class Application(Base):
     __tablename__ = "applications"
@@ -45,7 +51,10 @@ class Application(Base):
     salary_max = Column(Numeric(10, 2), nullable=True)
     salary_currency = Column(String(10), nullable=True, default="USD")
 
-    date_applied = Column(Date, nullable=False)
+    # Nullable: a job can be tracked before it is applied for, in which case
+    # there is no date yet and the status is `interested`. See KAN-31 and
+    # REQUIREMENTS.md §2.
+    date_applied = Column(Date, nullable=True)
     notes = Column(Text, nullable=True)
 
     # What is owed next and when — turns the list into a worklist rather than

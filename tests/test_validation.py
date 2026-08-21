@@ -135,6 +135,16 @@ class TestDateApplied:
         )
         assert response.status_code == 422
 
+    def test_an_explicit_null_is_treated_as_absent(self, client):
+        """The form sends `null` rather than omitting the key, so the two must
+        behave identically — an explicit null still yields `interested`."""
+        response = client.post(
+            "/applications",
+            json={"company": "Acme Corp", "role_title": "SDET", "date_applied": None},
+        )
+        assert response.status_code == 201
+        assert response.json()["status"] == "interested"
+
 
 class TestErrorShape:
     def test_our_own_rules_return_a_plain_string_detail(
