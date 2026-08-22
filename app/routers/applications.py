@@ -39,6 +39,7 @@ def read_applications(
     sort_dir: str = Query("desc", pattern="^(asc|desc)$"),
     skip: int = 0,
     limit: int = 100,
+    include_contacts: bool = False,
     db: Session = Depends(get_db),
 ):
     items, total = crud.list_applications(
@@ -50,10 +51,15 @@ def read_applications(
         sort_dir=sort_dir,
         skip=skip,
         limit=limit,
+        with_contacts=include_contacts,
     )
+    # Contacts are embedded only when asked for. The CSV export (KAN-39) wants
+    # them; the list screen never does, and §2.1 is explicit about why it must
+    # not pay for them by default.
+    out = schemas.ApplicationOut if include_contacts else schemas.ApplicationListOut
     return {
         "total": total,
-        "items": [schemas.ApplicationListOut.model_validate(i) for i in items],
+        "items": [out.model_validate(i) for i in items],
     }
 
 

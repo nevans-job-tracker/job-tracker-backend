@@ -231,6 +231,67 @@ class TestRead:
         assert "contacts" not in row
 
 
+class TestListWithContacts:
+    """Opt-in contacts on the list, for the CSV export (KAN-39).
+
+    §2.1 keeps them off list rows by default because loading them per row is a
+    query per application. These tests pin both halves of that: absent unless
+    asked for, present when asked.
+    """
+
+    def test_absent_by_default(self, client, make_application):
+        created = make_application()
+        client.post(
+            f"/applications/{created['id']}/contacts", json={"name": "Dana Wu"}
+        )
+        row = client.get("/applications").json()["items"][0]
+        assert "contacts" not in row
+
+    def test_present_when_asked_for(self, client, make_application):
+        created = make_application()
+        client.post(
+            f"/applications/{created['id']}/contacts",
+            json={"name": "Dana Wu", "title": "Recruiter", "email": "dana@example.com"},
+        )
+        row = client.get("/applications?include_contacts=true").json()["items"][0]
+        assert [c["name"] for c in row["contacts"]] == ["Dana Wu"]
+        assert row["contacts"][0]["title"] == "Recruiter"
+
+    def test_an_application_with_no_contacts_gets_an_empty_list(
+        self, client, make_application
+    ):
+        """Not a missing key — the export flattens contacts into columns and
+        needs the absent case to be an empty list, not undefined."""
+        make_application()
+        row = client.get("/applications?include_contacts=true").json()["items"][0]
+        assert row["contacts"] == []
+
+    def test_filters_and_total_are_unaffected(self, client, make_application):
+        make_application(company="Alpha", status="applied")
+        make_application(company="Bravo", status="rejected")
+        body = client.get(
+            "/applications?include_contacts=true&status=applied"
+        ).json()
+        assert body["total"] == 1
+        assert body["items"][0]["company"] == "Alpha"
+
+    def test_contacts_belong_to_their_own_application(self, client, make_application):
+        """Flattening into columns would put the wrong people against the wrong
+        job if this ever crossed over."""
+        first = make_application(company="Alpha")
+        second = make_application(company="Bravo")
+        client.post(f"/applications/{first['id']}/contacts", json={"name": "Ann"})
+        client.post(f"/applications/{second['id']}/contacts", json={"name": "Bob"})
+
+        rows = client.get(
+            "/applications?include_contacts=true&sort_by=company&sort_dir=asc"
+        ).json()["items"]
+        assert {r["company"]: [c["name"] for c in r["contacts"]] for r in rows} == {
+            "Alpha": ["Ann"],
+            "Bravo": ["Bob"],
+        }
+
+
 class TestUpdate:
     def test_patch_changes_only_supplied_fields(self, client, make_application):
         created = make_application(location="Remote")

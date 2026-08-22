@@ -53,6 +53,10 @@ If `docs/` is empty after cloning, run `git submodule update --init`.
   `crud.list_applications`, so the default date-descending view leads with jobs
   not yet applied to. Written as a leading `IS NULL` key because MariaDB has no
   `NULLS FIRST` / `NULLS LAST`. See `REQUIREMENTS.md` §4.2.
+- **Contacts are off list rows by default**, because loading them per row is a
+  query per application. `include_contacts=true` opts back in for the CSV
+  export (KAN-39) and eager-loads with `selectinload`, so it costs one extra
+  query rather than N. See `REQUIREMENTS.md` §2.1.
 - **Status transitions are deliberately unvalidated** — any status may be set at
   any time. This is a decision, not an oversight; see `REQUIREMENTS.md` §3.
 - **Records are archived, never deleted.** An `archived_at` timestamp marks
@@ -62,7 +66,7 @@ If `docs/` is empty after cloning, run `git submodule update --init`.
 ## Testing
 
 ```bash
-pytest        # 135 tests, 99% statements
+pytest        # 140 tests, 99% statements
 ```
 
 Runs against throwaway SQLite via a `DATABASE_URL` override, so no MySQL is

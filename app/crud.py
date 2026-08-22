@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app import models, schemas
 
@@ -24,8 +24,18 @@ def list_applications(
     sort_dir: str = "desc",
     skip: int = 0,
     limit: int = 100,
+    with_contacts: bool = False,
 ):
     query = db.query(models.Application)
+
+    # Opt-in, and eager. REQUIREMENTS.md §2.1 keeps contacts off list rows
+    # because loading them per row is one query per application on every
+    # request. That reasoning still holds for the list, so this stays off by
+    # default; selectinload makes it one extra query for the whole page rather
+    # than N, which is what lets the CSV export ask for them (KAN-39) without
+    # reintroducing the cost the rule exists to avoid.
+    if with_contacts:
+        query = query.options(selectinload(models.Application.contacts))
 
     # Archive state is an axis of its own, independent of `status`: both filters
     # apply at once. See REQUIREMENTS.md §4.1.
