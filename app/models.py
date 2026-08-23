@@ -89,6 +89,11 @@ class Application(Base):
     # down mid-process.
     job_description = Column(Text, nullable=True)
 
+    # What was written to this employer. Text rather than an uploaded file: a
+    # PDF can be regenerated from it, and a column rides the existing encrypted
+    # backup instead of needing a second store. See REQUIREMENTS.md §2.
+    cover_letter = Column(Text, nullable=True)
+
     # Archive marker. NULL means active. Applications are archived, never
     # deleted, and never purged — see REQUIREMENTS.md §4.1.
     archived_at = Column(DateTime, nullable=True, index=True)

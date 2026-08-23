@@ -84,6 +84,7 @@ class ApplicationBase(BaseModel):
     next_action: Optional[str] = None
     next_action_date: Optional[date] = None
     job_description: Optional[str] = None
+    cover_letter: Optional[str] = None
 
     _check_job_link = field_validator("job_link")(_validated_job_link)
 
@@ -126,6 +127,7 @@ class ApplicationUpdate(BaseModel):
     next_action: Optional[str] = None
     next_action_date: Optional[date] = None
     job_description: Optional[str] = None
+    cover_letter: Optional[str] = None
 
     _check_job_link = field_validator("job_link")(_validated_job_link)
 

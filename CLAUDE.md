@@ -53,6 +53,10 @@ If `docs/` is empty after cloning, run `git submodule update --init`.
   `crud.list_applications`, so the default date-descending view leads with jobs
   not yet applied to. Written as a leading `IS NULL` key because MariaDB has no
   `NULLS FIRST` / `NULLS LAST`. See `REQUIREMENTS.md` §4.2.
+- **`cover_letter` is a nullable Text column, not an uploaded file** (KAN-40).
+  Text rides the existing encrypted dump, so the restore rehearsal keeps
+  covering it and nothing can diverge from the database. The frontend generates
+  a downloadable HTML rendering from it. See `REQUIREMENTS.md` §2.
 - **Contacts are off list rows by default**, because loading them per row is a
   query per application. `include_contacts=true` opts back in for the CSV
   export (KAN-39) and eager-loads with `selectinload`, so it costs one extra
@@ -66,7 +70,7 @@ If `docs/` is empty after cloning, run `git submodule update --init`.
 ## Testing
 
 ```bash
-pytest        # 140 tests, 99% statements
+pytest        # 145 tests, 99% statements
 ```
 
 Runs against throwaway SQLite via a `DATABASE_URL` override, so no MySQL is

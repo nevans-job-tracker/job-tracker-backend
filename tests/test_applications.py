@@ -231,6 +231,58 @@ class TestRead:
         assert "contacts" not in row
 
 
+class TestCoverLetter:
+    """What was written to a given employer (KAN-40)."""
+
+    LETTER = "Dear Hiring Manager,\n\nI am writing to apply.\n\nSincerely,\nNick"
+
+    def test_round_trips_through_create_detail_and_list(
+        self, client, application_payload
+    ):
+        created = client.post(
+            "/applications", json={**application_payload, "cover_letter": self.LETTER}
+        ).json()
+        assert created["cover_letter"] == self.LETTER
+
+        assert client.get(f"/applications/{created['id']}").json()[
+            "cover_letter"
+        ] == self.LETTER
+        assert client.get("/applications").json()["items"][0][
+            "cover_letter"
+        ] == self.LETTER
+
+    def test_absent_by_default(self, client, make_application):
+        assert make_application()["cover_letter"] is None
+
+    def test_blank_lines_survive_intact(self, client, application_payload):
+        """Paragraph breaks are the whole formatting the field carries, so a
+        round trip that eats them would lose the only structure there is."""
+        created = client.post(
+            "/applications", json={**application_payload, "cover_letter": self.LETTER}
+        ).json()
+        assert created["cover_letter"].count("\n\n") == 2
+
+    def test_can_be_set_and_cleared_by_patch(self, client, make_application):
+        created = make_application()
+        patched = client.patch(
+            f"/applications/{created['id']}", json={"cover_letter": self.LETTER}
+        ).json()
+        assert patched["cover_letter"] == self.LETTER
+
+        cleared = client.patch(
+            f"/applications/{created['id']}", json={"cover_letter": None}
+        ).json()
+        assert cleared["cover_letter"] is None
+
+    def test_a_long_letter_is_stored_whole(self, client, application_payload):
+        """Text, not String(255) — a letter runs to thousands of characters."""
+        long_letter = "word " * 2000
+        created = client.post(
+            "/applications", json={**application_payload, "cover_letter": long_letter}
+        ).json()
+        assert len(created["cover_letter"]) == len(long_letter)
+
+
 class TestListWithContacts:
     """Opt-in contacts on the list, for the CSV export (KAN-39).
 
