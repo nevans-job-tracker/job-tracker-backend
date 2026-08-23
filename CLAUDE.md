@@ -61,6 +61,12 @@ If `docs/` is empty after cloning, run `git submodule update --init`.
   query per application. `include_contacts=true` opts back in for the CSV
   export (KAN-39) and eager-loads with `selectinload`, so it costs one extra
   query rather than N. See `REQUIREMENTS.md` §2.1.
+- **Every status change is recorded** in `status_changes` (KAN-42). Nothing
+  reads it yet; it shipped alone because history cannot be reconstructed after
+  the fact. `_record_status` is called explicitly from `crud`, so it fires only
+  where someone remembered to call it — `test_only_two_paths_change_a_status`
+  parses `crud.py` and fails if a third function starts assigning attributes.
+  Add a call there too if you add one. See `REQUIREMENTS.md` §2.2.
 - **Status transitions are deliberately unvalidated** — any status may be set at
   any time. This is a decision, not an oversight; see `REQUIREMENTS.md` §3.
 - **Records are archived, never deleted.** An `archived_at` timestamp marks
@@ -70,7 +76,7 @@ If `docs/` is empty after cloning, run `git submodule update --init`.
 ## Testing
 
 ```bash
-pytest        # 145 tests, 99% statements
+pytest        # 157 tests, 99% statements
 ```
 
 Runs against throwaway SQLite via a `DATABASE_URL` override, so no MySQL is

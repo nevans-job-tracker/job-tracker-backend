@@ -93,11 +93,35 @@ def list_applications(
     return items, total
 
 
+def _record_status(db: Session, application_id: int, from_status, to_status) -> None:
+    """Appends to the status history (KAN-42).
+
+    Called explicitly from the two functions that can move a status, rather
+    than from an ORM event that fires invisibly. Be clear about what that is: a
+    convention, not the kind of assertion conftest.py uses to protect the live
+    database. A third write path added later would leave history silently
+    incomplete — which is the worst failure mode, because nothing looks wrong.
+    `test_only_two_paths_change_a_status` is what pins the assumption.
+    """
+    db.add(
+        models.StatusChange(
+            application_id=application_id,
+            from_status=from_status,
+            to_status=to_status,
+        )
+    )
+
+
 def create_application(
     db: Session, application: schemas.ApplicationCreate
 ) -> models.Application:
     db_application = models.Application(**application.model_dump())
     db.add(db_application)
+    db.flush()  # assigns the id the history row needs
+
+    # from_status is NULL: an application does not transition into existence.
+    _record_status(db, db_application.id, None, db_application.status)
+
     db.commit()
     db.refresh(db_application)
     return db_application
@@ -111,8 +135,15 @@ def update_application(
         return None
 
     update_data = application.model_dump(exclude_unset=True)
+    previous_status = db_application.status
     for field, value in update_data.items():
         setattr(db_application, field, value)
+
+    # Only a real move is history. Saving the detail screen without touching
+    # the status sends it back unchanged every time, and recording those would
+    # bury the transitions in noise and make every duration read as zero.
+    if db_application.status != previous_status:
+        _record_status(db, application_id, previous_status, db_application.status)
 
     db.commit()
     db.refresh(db_application)

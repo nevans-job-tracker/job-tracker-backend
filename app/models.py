@@ -3,6 +3,7 @@ import enum
 from sqlalchemy import (
     Column,
     ForeignKey,
+    Index,
     Integer,
     SmallInteger,
     String,
@@ -107,6 +108,53 @@ class Application(Base):
         cascade="all, delete-orphan",
         order_by="Contact.id",
     )
+
+    status_changes = relationship(
+        "StatusChange",
+        back_populates="application",
+        cascade="all, delete-orphan",
+        order_by="StatusChange.changed_at",
+    )
+
+
+class StatusChange(Base):
+    """One row per status transition (KAN-42).
+
+    Nothing reads this yet. It exists because history cannot be reconstructed
+    after the fact: the applications table holds only the current status, and
+    `updated_at` says when a row last changed rather than what it changed from.
+
+    `changed_at` is when the *record* was edited, not when the thing happened.
+    A rejection email left unread for a week charges that week to the previous
+    status. Good enough for "three weeks in Applied"; not for "five days in
+    phone screen". See REQUIREMENTS.md §3 for the deferred fix.
+    """
+
+    __tablename__ = "status_changes"
+
+    # Declared here rather than as index=True on the column, because both are
+    # composite and both exist for a specific read: the timeline walks one
+    # application in order, the graph walks a date range for one status.
+    # Declaring them on the model is also what keeps `alembic check` clean.
+    __table_args__ = (
+        Index("ix_status_changes_application", "application_id", "changed_at"),
+        Index("ix_status_changes_status_date", "to_status", "changed_at"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    application_id = Column(
+        Integer,
+        ForeignKey("applications.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    # NULL means the history starts here rather than a transition: the
+    # application was just created, or it predates the table.
+    from_status = Column(Enum(ApplicationStatus), nullable=True)
+    to_status = Column(Enum(ApplicationStatus), nullable=False)
+    changed_at = Column(DateTime, server_default=func.now(), nullable=False)
+
+    application = relationship("Application", back_populates="status_changes")
 
 
 class Contact(Base):
