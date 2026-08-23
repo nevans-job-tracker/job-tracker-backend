@@ -76,7 +76,7 @@ If `docs/` is empty after cloning, run `git submodule update --init`.
 ## Testing
 
 ```bash
-pytest        # 157 tests, 99% statements
+pytest        # 164 tests, 99% statements
 ```
 
 Runs against throwaway SQLite via a `DATABASE_URL` override, so no MySQL is

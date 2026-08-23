@@ -147,6 +147,24 @@ class ApplicationListOut(ApplicationBase):
     archived_at: Optional[datetime] = None
 
 
+class StatusChangeOut(BaseModel):
+    """One recorded transition (KAN-42), read by the timeline (KAN-43).
+
+    Deliberately *not* embedded in ApplicationOut. That schema is what the list
+    returns when the CSV export asks for contacts, so adding history to it would
+    make every exported application lazily load its own — one query per row,
+    the N+1 §2.1 exists to prevent, reintroduced through a schema nobody
+    thought to check.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    from_status: Optional[ApplicationStatus] = None
+    to_status: ApplicationStatus
+    changed_at: datetime
+
+
 class ApplicationOut(ApplicationListOut):
     """Detail view, including the application's contacts."""
 

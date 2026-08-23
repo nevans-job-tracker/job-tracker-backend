@@ -169,6 +169,17 @@ def set_archived(
     return db_application
 
 
+def list_status_changes(db: Session, application_id: int) -> list[models.StatusChange]:
+    """Oldest first. `id` breaks ties, because two changes in the same second
+    are possible and the timeline's durations depend on a stable order."""
+    return (
+        db.query(models.StatusChange)
+        .filter(models.StatusChange.application_id == application_id)
+        .order_by(models.StatusChange.changed_at, models.StatusChange.id)
+        .all()
+    )
+
+
 def get_contact(
     db: Session, application_id: int, contact_id: int
 ) -> Optional[models.Contact]:

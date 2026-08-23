@@ -134,6 +134,69 @@ class TestIsolation:
         assert "status_changes" not in client.get(f"/applications/{created['id']}").json()
 
 
+class TestHistoryEndpoint:
+    """GET /applications/{id}/history — what the timeline reads (KAN-43)."""
+
+    def test_returns_the_opening_row(self, client, make_application):
+        created = make_application()
+        body = client.get(f"/applications/{created['id']}/history").json()
+        assert len(body) == 1
+        assert body[0]["from_status"] is None
+        assert body[0]["to_status"] == "applied"
+        assert body[0]["changed_at"]
+
+    def test_returns_changes_oldest_first(self, client, make_application):
+        created = make_application()
+        for status in ["phone_screen", "interview"]:
+            client.patch(f"/applications/{created['id']}", json={"status": status})
+
+        body = client.get(f"/applications/{created['id']}/history").json()
+        assert [r["to_status"] for r in body] == [
+            "applied",
+            "phone_screen",
+            "interview",
+        ]
+
+    def test_a_repeated_status_appears_every_time(self, client, make_application):
+        """§3 allows any transition, so a status recurring is ordinary — the
+        timeline renders three entries rather than deduplicating."""
+        created = make_application()
+        for status in ["rejected", "interview", "rejected"]:
+            client.patch(f"/applications/{created['id']}", json={"status": status})
+
+        body = client.get(f"/applications/{created['id']}/history").json()
+        assert [r["to_status"] for r in body].count("rejected") == 2
+
+    def test_only_this_application_s_history(self, client, make_application):
+        first = make_application(company="Alpha")
+        second = make_application(company="Bravo")
+        client.patch(f"/applications/{first['id']}", json={"status": "offer"})
+
+        assert len(client.get(f"/applications/{first['id']}/history").json()) == 2
+        assert len(client.get(f"/applications/{second['id']}/history").json()) == 1
+
+    def test_missing_application_returns_404(self, client):
+        assert client.get("/applications/999999/history").status_code == 404
+
+    def test_history_is_still_absent_from_the_detail_response(
+        self, client, make_application
+    ):
+        """The endpoint is separate on purpose. Embedding it in ApplicationOut
+        would make the CSV export lazily load history per row — the N+1 §2.1
+        exists to prevent."""
+        created = make_application()
+        detail = client.get(f"/applications/{created['id']}").json()
+        assert "status_changes" not in detail
+        assert "history" not in detail
+
+    def test_the_csv_export_fetch_does_not_carry_history(
+        self, client, make_application
+    ):
+        make_application()
+        row = client.get("/applications?include_contacts=true").json()["items"][0]
+        assert "status_changes" not in row
+
+
 def test_only_two_paths_change_a_status():
     """Pins the assumption the recording rests on.
 

@@ -126,6 +126,16 @@ def _require_application(db: Session, application_id: int) -> None:
         raise HTTPException(status_code=404, detail="Application not found")
 
 
+@router.get(
+    "/{application_id}/history", response_model=list[schemas.StatusChangeOut]
+)
+def read_status_history(application_id: int, db: Session = Depends(get_db)):
+    """Its own endpoint rather than embedded in the detail response — see the
+    note on StatusChangeOut for why that would cost the CSV export an N+1."""
+    _require_application(db, application_id)
+    return crud.list_status_changes(db, application_id)
+
+
 @router.get("/{application_id}/contacts", response_model=list[schemas.ContactOut])
 def read_contacts(application_id: int, db: Session = Depends(get_db)):
     _require_application(db, application_id)
