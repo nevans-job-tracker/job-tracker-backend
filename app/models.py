@@ -52,6 +52,35 @@ class CompanySize(str, enum.Enum):
     massive = "massive"  # 1001+
 
 
+class PayPeriod(str, enum.Enum):
+    """What the figures in salary_min/salary_max actually measure (KAN-50).
+
+    Before this column the two were told apart by magnitude alone — the display
+    rule "values below 1000 are shown unrounded" was the only thing stopping an
+    86/hour rate rendering as "0K". That guard remains, but it is no longer
+    carrying a fact the schema should have held.
+    """
+
+    annual = "annual"
+    hourly = "hourly"
+
+
+class EmploymentType(str, enum.Enum):
+    """Whether the posting is permanent, fixed-term, or unpaid (KAN-51).
+
+    Declaration order is load-bearing for the same reason as CompanySize:
+    MySQL and MariaDB store an ENUM as its ordinal, so this is what any
+    `ORDER BY employment_type` means. It runs from most to least conventional
+    commitment, with the two contract kinds adjacent.
+    """
+
+    full_time = "full_time"
+    part_time = "part_time"
+    contract = "contract"
+    contract_to_hire = "contract_to_hire"
+    volunteer = "volunteer"
+
+
 class Application(Base):
     __tablename__ = "applications"
 
@@ -74,6 +103,39 @@ class Application(Base):
     salary_min = Column(Numeric(10, 2), nullable=True)
     salary_max = Column(Numeric(10, 2), nullable=True)
     salary_currency = Column(String(10), nullable=True, default="USD")
+
+    # NOT NULL with a default, unlike the two below: every pay figure is one
+    # period or the other, so there is no honest "unset" state. The column
+    # names stay `salary_*` deliberately — renaming them is a migration that
+    # also moves the API surface and the sort whitelist, to buy a better name
+    # for something this column has already disambiguated. See KAN-50.
+    pay_period = Column(
+        Enum(PayPeriod), nullable=False, server_default=PayPeriod.annual.value
+    )
+
+    # Nullable and *not* defaulted, unlike pay_period: plenty of postings do
+    # not say, and defaulting to full_time would invent a fact for every
+    # existing row. Blank means "not recorded". See KAN-51.
+    employment_type = Column(Enum(EmploymentType), nullable=True)
+
+    # Only meaningful alongside a contract employment_type. That pairing is
+    # enforced in the route against the merged PATCH result, not here — the
+    # same shape as the salary_min <= salary_max rule and for the same reason.
+    contract_term_months = Column(SmallInteger, nullable=True)
+
+    # Expected weekly hours, which contract and part-time postings often state
+    # and full-time ones rarely do.
+    #
+    # A *pair*, because postings write it as a range — "Commitment: 10-40
+    # hrs/week" — and a single column would have to discard one end. Same shape
+    # as salary_min/salary_max, including the route-level check that the pair
+    # is not inverted. A fixed commitment sets both to the same value.
+    #
+    # Deliberately *not* tied to a particular employment_type: 20 hours a week
+    # is as meaningful on a part-time role as on a contract, and a pairing rule
+    # here would buy nothing. See KAN-51.
+    hours_per_week_min = Column(SmallInteger, nullable=True)
+    hours_per_week_max = Column(SmallInteger, nullable=True)
 
     # Nullable: a job can be tracked before it is applied for, in which case
     # there is no date yet and the status is `interested`. See KAN-31 and

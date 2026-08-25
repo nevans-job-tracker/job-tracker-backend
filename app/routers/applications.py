@@ -9,17 +9,47 @@ from app.database import get_db
 router = APIRouter(prefix="/applications", tags=["applications"])
 
 
-def _check_salary_range(minimum, maximum) -> None:
-    """Rejects an inverted salary range.
+def _check_range(minimum, maximum, message: str) -> None:
+    """Rejects an inverted min/max pair.
 
     Enforced here rather than on the schema because a PATCH may supply only one
     of the two values, and the rule has to hold against the *merged* result
-    rather than the request body alone.
+    rather than the request body alone — lowering only the max can still invert
+    the pair against the stored min.
+
+    Shared by salary and weekly hours, which are the same shape and the same
+    kind of typo. See REQUIREMENTS.md §2.
     """
     if minimum is not None and maximum is not None and minimum > maximum:
+        raise HTTPException(status_code=422, detail=message)
+
+
+SALARY_INVERTED = "Salary min cannot be greater than salary max."
+HOURS_INVERTED = "Hours per week min cannot be greater than hours per week max."
+
+
+CONTRACT_TYPES = (
+    models.EmploymentType.contract,
+    models.EmploymentType.contract_to_hire,
+)
+
+
+def _check_contract_term(employment_type, term_months) -> None:
+    """Rejects a contract term on a posting that is not a contract.
+
+    Same shape and same reasoning as the salary rule above: a PATCH may set
+    only one of the pair, so switching a stored contract to full_time while
+    its term remains has to fail. Checking the request body alone would let
+    that through and leave a term nothing explains.
+
+    The form hides the term field unless a contract type is selected, but that
+    is convenience — §6.1 makes the general point that a rule enforced only in
+    the UI is decorative while the API is directly reachable.
+    """
+    if term_months is not None and employment_type not in CONTRACT_TYPES:
         raise HTTPException(
             status_code=422,
-            detail="Salary min cannot be greater than salary max.",
+            detail="A contract term only applies to a contract role.",
         )
 
 
@@ -32,8 +62,8 @@ def read_applications(
         "date_applied",
         pattern=(
             "^(company|role_title|location|source|status|company_size|"
-            "years_experience_min|date_applied|next_action_date|"
-            "salary_min|salary_max|created_at)$"
+            "years_experience_min|employment_type|date_applied|"
+            "next_action_date|salary_min|salary_max|created_at)$"
         ),
     ),
     sort_dir: str = Query("desc", pattern="^(asc|desc)$"),
@@ -75,7 +105,13 @@ def read_application(application_id: int, db: Session = Depends(get_db)):
 def create_application(
     application: schemas.ApplicationCreate, db: Session = Depends(get_db)
 ):
-    _check_salary_range(application.salary_min, application.salary_max)
+    _check_range(application.salary_min, application.salary_max, SALARY_INVERTED)
+    _check_range(
+        application.hours_per_week_min,
+        application.hours_per_week_max,
+        HOURS_INVERTED,
+    )
+    _check_contract_term(application.employment_type, application.contract_term_months)
     return crud.create_application(db, application)
 
 
@@ -92,9 +128,19 @@ def update_application(
     # Check the range the record will end up with, not just what was sent —
     # a PATCH that lowers only salary_max can still invert the pair.
     submitted = application.model_dump(exclude_unset=True)
-    _check_salary_range(
+    _check_range(
         submitted.get("salary_min", existing.salary_min),
         submitted.get("salary_max", existing.salary_max),
+        SALARY_INVERTED,
+    )
+    _check_range(
+        submitted.get("hours_per_week_min", existing.hours_per_week_min),
+        submitted.get("hours_per_week_max", existing.hours_per_week_max),
+        HOURS_INVERTED,
+    )
+    _check_contract_term(
+        submitted.get("employment_type", existing.employment_type),
+        submitted.get("contract_term_months", existing.contract_term_months),
     )
 
     # Existence was confirmed above, so this cannot come back empty.

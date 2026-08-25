@@ -12,7 +12,12 @@ from pydantic import (
     model_validator,
 )
 
-from app.models import ApplicationStatus, CompanySize
+from app.models import (
+    ApplicationStatus,
+    CompanySize,
+    EmploymentType,
+    PayPeriod,
+)
 
 _http_url = TypeAdapter(HttpUrl)
 
@@ -77,6 +82,21 @@ class ApplicationBase(BaseModel):
     salary_min: Optional[Decimal] = None
     salary_max: Optional[Decimal] = None
     salary_currency: Optional[str] = "USD"
+    # Every pay figure is one period or the other, so this defaults rather than
+    # being optional — there is no honest "unset". See KAN-50.
+    pay_period: PayPeriod = PayPeriod.annual
+    # Unstated on plenty of postings, so blank is a real answer here.
+    employment_type: Optional[EmploymentType] = None
+    # Paired with a contract employment_type; the pairing is enforced in the
+    # route, against the merged result. Negative months is not a value anyone
+    # means, so it is rejected rather than stored.
+    contract_term_months: Optional[int] = Field(default=None, ge=0)
+    # Expected weekly hours, as a range — postings write "10-40 hrs/week".
+    # Unbounded upwards for the same reason as years_experience_min: there is
+    # no obviously wrong number to draw a line at. Negative is not a value
+    # anyone means.
+    hours_per_week_min: Optional[int] = Field(default=None, ge=0)
+    hours_per_week_max: Optional[int] = Field(default=None, ge=0)
     # Optional: a job being tracked before it is applied for has no date yet.
     # See REQUIREMENTS.md §2.
     date_applied: Optional[date] = None
@@ -122,6 +142,11 @@ class ApplicationUpdate(BaseModel):
     salary_min: Optional[Decimal] = None
     salary_max: Optional[Decimal] = None
     salary_currency: Optional[str] = None
+    pay_period: Optional[PayPeriod] = None
+    employment_type: Optional[EmploymentType] = None
+    contract_term_months: Optional[int] = Field(default=None, ge=0)
+    hours_per_week_min: Optional[int] = Field(default=None, ge=0)
+    hours_per_week_max: Optional[int] = Field(default=None, ge=0)
     date_applied: Optional[date] = None
     notes: Optional[str] = None
     next_action: Optional[str] = None

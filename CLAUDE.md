@@ -67,6 +67,25 @@ If `docs/` is empty after cloning, run `git submodule update --init`.
   where someone remembered to call it — `test_only_two_paths_change_a_status`
   parses `crud.py` and fails if a third function starts assigning attributes.
   Add a call there too if you add one. See `REQUIREMENTS.md` §2.2.
+- **`pay_period` is NOT NULL defaulting to `annual`** (KAN-50), recording
+  whether the `salary_*` figures are annual or hourly. Before it, magnitude was
+  the only thing telling them apart. The columns keep their `salary_*` names on
+  purpose — renaming is a migration that also moves the API surface, for a name
+  `pay_period` has already disambiguated.
+- **`employment_type` is nullable and undefaulted** (KAN-51), the opposite
+  choice: plenty of postings do not say, and `full_time` would have invented a
+  fact for every existing row. Declared full_time, part_time, contract,
+  contract_to_hire, volunteer — ordinal order matters on MariaDB.
+- **`contract_term_months` is only valid with a contract type**, and
+  **`hours_per_week_min`/`_max` must not invert** — both enforced in the route
+  against the *merged* PATCH result, sharing `_check_range` with salary. A
+  PATCH changing only one half is why the schema cannot do it.
+- **Weekly hours is a pair, not a scalar**, because postings say "10-40
+  hrs/week". It is deliberately not tied to an employment type.
+- **The API has a fourth consumer**: `chrome-extension-job-tracker` POSTs
+  scraped postings to `/applications` and does not mount `docs/`. Additive
+  nullable columns are safe, but pydantic ignores unknown fields, so a change
+  there fails silently with a 201. See `WORKSPACE.md`.
 - **Status transitions are deliberately unvalidated** — any status may be set at
   any time. This is a decision, not an oversight; see `REQUIREMENTS.md` §3.
 - **Records are archived, never deleted.** An `archived_at` timestamp marks
@@ -76,7 +95,7 @@ If `docs/` is empty after cloning, run `git submodule update --init`.
 ## Testing
 
 ```bash
-pytest        # 164 tests, 99% statements
+pytest        # 190 tests, 99% statements
 ```
 
 Runs against throwaway SQLite via a `DATABASE_URL` override, so no MySQL is
