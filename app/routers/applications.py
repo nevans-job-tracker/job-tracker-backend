@@ -101,6 +101,36 @@ def read_application(application_id: int, db: Session = Depends(get_db)):
     return db_application
 
 
+def _check_not_duplicate(db: Session, application) -> None:
+    """Rejects a second copy of a posting already tracked.
+
+    Enforced here rather than as a UNIQUE index, which does not fit: job_link
+    is VARCHAR(1024) and InnoDB's key limit is 3072 bytes, which utf8mb4
+    reaches at 768 characters for that column alone. Hashing the link would
+    work and is more machinery than a single-user tracker needs.
+
+    That makes this a convention rather than an assertion — a second writer
+    could race it. There is one writer, so the exposure is theoretical. See
+    REQUIREMENTS.md §2.
+    """
+    existing = crud.find_duplicate(
+        db, application.company, application.role_title, application.job_link
+    )
+    if existing is None:
+        return
+
+    # Naming the archive state matters: a rejection pointing at a record that
+    # is not in the list is otherwise baffling.
+    where = " (archived)" if existing.archived_at else ""
+    raise HTTPException(
+        status_code=409,
+        detail=(
+            f"Already tracked as #{existing.id}{where}: "
+            f"{existing.company} — {existing.role_title}."
+        ),
+    )
+
+
 @router.post("", response_model=schemas.ApplicationOut, status_code=201)
 def create_application(
     application: schemas.ApplicationCreate, db: Session = Depends(get_db)
@@ -112,6 +142,7 @@ def create_application(
         HOURS_INVERTED,
     )
     _check_contract_term(application.employment_type, application.contract_term_months)
+    _check_not_duplicate(db, application)
     return crud.create_application(db, application)
 
 

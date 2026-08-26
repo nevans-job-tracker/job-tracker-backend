@@ -105,9 +105,18 @@ class TestJobLink:
         assert response.json()["job_link"] == "https://example.com"
 
     def test_null_and_empty_are_accepted_as_absent(self, client, application_payload):
-        for value in (None, ""):
+        # Distinct companies because both records would otherwise be linkless
+        # copies of each other, which KAN-55 now rejects. This test is about
+        # job_link normalisation, so it should not depend on that rule either
+        # way.
+        for index, value in enumerate((None, "")):
             response = client.post(
-                "/applications", json={**application_payload, "job_link": value}
+                "/applications",
+                json={
+                    **application_payload,
+                    "company": f"Acme {index}",
+                    "job_link": value,
+                },
             )
             assert response.status_code == 201
             assert response.json()["job_link"] is None
@@ -369,3 +378,68 @@ class TestWeeklyHours:
                   "hours_per_week_min": 20, "hours_per_week_max": 25},
         )
         assert response.status_code == 201
+
+
+class TestDuplicates:
+    """KAN-55 — the same posting must not be saved twice."""
+
+    def _payload(self, application_payload, **overrides):
+        return {
+            **application_payload,
+            "company": "Sequencing.com",
+            "role_title": "Senior QA Engineer",
+            "job_link": "https://builtin.com/job/senior-qa-engineer/1",
+            **overrides,
+        }
+
+    def test_the_first_one_is_accepted(self, client, application_payload):
+        assert client.post("/applications", json=self._payload(application_payload)).status_code == 201
+
+    def test_an_identical_second_is_rejected(self, client, application_payload):
+        first = client.post("/applications", json=self._payload(application_payload)).json()
+        response = client.post("/applications", json=self._payload(application_payload))
+        assert response.status_code == 409
+        assert f"#{first['id']}" in response.json()["detail"]
+
+    def test_the_comparison_ignores_case_and_padding(self, client, application_payload):
+        client.post("/applications", json=self._payload(application_payload))
+        response = client.post(
+            "/applications",
+            json=self._payload(application_payload, company="  sequencing.COM  "),
+        )
+        assert response.status_code == 409
+
+    def test_a_different_role_at_the_same_company_is_fine(self, client, application_payload):
+        client.post("/applications", json=self._payload(application_payload))
+        response = client.post(
+            "/applications",
+            json=self._payload(application_payload, role_title="Staff QA Engineer",
+                               job_link="https://builtin.com/job/staff-qa-engineer/2"),
+        )
+        assert response.status_code == 201
+
+    def test_a_different_link_is_a_different_posting(self, client, application_payload):
+        client.post("/applications", json=self._payload(application_payload))
+        response = client.post(
+            "/applications",
+            json=self._payload(application_payload, job_link="https://builtin.com/job/senior-qa-engineer/99"),
+        )
+        assert response.status_code == 201
+
+    def test_two_linkless_records_still_collide(self, client, application_payload):
+        # SQL would say NULL != NULL and let both through, which is exactly
+        # the manual-entry case this exists to stop.
+        client.post("/applications", json=self._payload(application_payload, job_link=None))
+        response = client.post(
+            "/applications", json=self._payload(application_payload, job_link=None)
+        )
+        assert response.status_code == 409
+
+    def test_an_archived_original_still_blocks(self, client, application_payload):
+        first = client.post("/applications", json=self._payload(application_payload)).json()
+        client.post(f"/applications/{first['id']}/archive")
+        response = client.post("/applications", json=self._payload(application_payload))
+        assert response.status_code == 409
+        # Saying so, because a rejection naming a record that is not in the
+        # list would otherwise be baffling.
+        assert "archived" in response.json()["detail"].lower()

@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, selectinload
 
 from app import models, schemas
@@ -110,6 +110,34 @@ def _record_status(db: Session, application_id: int, from_status, to_status) -> 
             to_status=to_status,
         )
     )
+
+
+def find_duplicate(db: Session, company: str, role_title: str, job_link):
+    """The existing application matching company, role title and job link.
+
+    Compared case-insensitively and trimmed, so "Sequencing.com" and
+    "sequencing.com" are one posting rather than two.
+
+    Two records with no link at all, matching on company and role, count as
+    duplicates. SQL would normally say NULL != NULL and let both through —
+    which is exactly the manual-entry case this exists to stop.
+
+    Archived records count. You already have the posting; that it is out of
+    view is not a reason to add another. See REQUIREMENTS.md §4.1.
+    """
+    normalise = lambda value: func.lower(func.trim(value))
+    query = db.query(models.Application).filter(
+        normalise(models.Application.company) == (company or "").strip().lower(),
+        normalise(models.Application.role_title) == (role_title or "").strip().lower(),
+    )
+
+    link = (job_link or "").strip()
+    if link:
+        query = query.filter(normalise(models.Application.job_link) == link.lower())
+    else:
+        query = query.filter(models.Application.job_link.is_(None))
+
+    return query.first()
 
 
 def create_application(
