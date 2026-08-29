@@ -19,6 +19,7 @@ def list_applications(
     db: Session,
     search: Optional[str] = None,
     status: Optional[models.ApplicationStatus] = None,
+    source: Optional[str] = None,
     show: str = "active",
     sort_by: str = "date_applied",
     sort_dir: str = "desc",
@@ -55,6 +56,13 @@ def list_applications(
                 models.Application.notes.ilike(like),
             )
         )
+
+    # Exact, not ilike. The values come from a dropdown built from the data, so
+    # exactness is achievable — and it keeps "LinkedIn" and "linkedin" distinct
+    # rather than quietly merging them, which is what makes the fragmentation
+    # §2 predicted visible instead of hidden.
+    if source:
+        query = query.filter(models.Application.source == source)
 
     if status:
         query = query.filter(models.Application.status == status)
@@ -110,6 +118,28 @@ def _record_status(db: Session, application_id: int, from_status, to_status) -> 
             to_status=to_status,
         )
     )
+
+
+def list_sources(db: Session):
+    """Every distinct source, sorted, across *all* records.
+
+    Deliberately not filtered by the caller's current view. If the options
+    were computed from the rows on screen, choosing a source would collapse
+    the dropdown to that one value and leave no way back — the set has to be
+    stable while the list underneath it changes.
+
+    Archived records count for the same reason: their source is still a real
+    thing the data contains, and hiding the option would make those rows
+    unreachable through the filter.
+    """
+    rows = (
+        db.query(models.Application.source)
+        .filter(models.Application.source.isnot(None))
+        .filter(models.Application.source != "")
+        .distinct()
+        .all()
+    )
+    return sorted(row[0] for row in rows)
 
 
 def find_duplicate(db: Session, company: str, role_title: str, job_link):

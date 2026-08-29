@@ -57,6 +57,7 @@ def _check_contract_term(employment_type, term_months) -> None:
 def read_applications(
     search: Optional[str] = None,
     status: Optional[models.ApplicationStatus] = None,
+    source: Optional[str] = None,
     show: str = Query("active", pattern="^(active|archived|all)$"),
     sort_by: str = Query(
         "date_applied",
@@ -76,6 +77,7 @@ def read_applications(
         db,
         search=search,
         status=status,
+        source=source,
         show=show,
         sort_by=sort_by,
         sort_dir=sort_dir,
@@ -91,6 +93,21 @@ def read_applications(
         "total": total,
         "items": [out.model_validate(i) for i in items],
     }
+
+
+@router.get("/sources", response_model=dict)
+def read_sources(db: Session = Depends(get_db)):
+    """The distinct sources, for the list's Source filter.
+
+    Declared *before* /{application_id}: that path parameter is typed int, so
+    FastAPI would try to parse "sources" as one and return 422 rather than
+    falling through to this route.
+
+    A separate endpoint rather than a field on the list response, because the
+    list is filtered and paginated — its rows are the wrong population to
+    build a stable set of options from. See KAN-56.
+    """
+    return {"sources": crud.list_sources(db)}
 
 
 @router.get("/{application_id}", response_model=schemas.ApplicationOut)

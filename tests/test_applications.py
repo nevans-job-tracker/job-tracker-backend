@@ -546,3 +546,91 @@ class TestPagination:
 
 def test_health_endpoint(client):
     assert client.get("/health").json() == {"status": "ok"}
+
+
+class TestSourceFilter:
+    """KAN-56 — a dedicated control, rather than relying on free-text search."""
+
+    def _seed(self, client, application_payload):
+        for company, source in [
+            ("Alpha", "LinkedIn"),
+            ("Beta", "Wellfound"),
+            ("Gamma", "LinkedIn"),
+            ("Delta", None),
+        ]:
+            client.post(
+                "/applications",
+                json={**application_payload, "company": company, "source": source},
+            )
+
+    def test_narrows_to_one_source(self, client, application_payload):
+        self._seed(client, application_payload)
+        body = client.get("/applications?source=LinkedIn").json()
+        assert body["total"] == 2
+        assert {a["company"] for a in body["items"]} == {"Alpha", "Gamma"}
+
+    def test_omitting_it_returns_everything(self, client, application_payload):
+        self._seed(client, application_payload)
+        assert client.get("/applications").json()["total"] == 4
+
+    def test_an_unknown_source_returns_nothing_rather_than_everything(
+        self, client, application_payload
+    ):
+        self._seed(client, application_payload)
+        assert client.get("/applications?source=Monster").json()["total"] == 0
+
+    def test_matching_is_exact_not_partial(self, client, application_payload):
+        # ilike would merge "LinkedIn" and "linkedin", hiding exactly the
+        # fragmentation §2 predicted. The dropdown is built from the data, so
+        # each variant is offered separately and must filter separately.
+        self._seed(client, application_payload)
+        assert client.get("/applications?source=linkedin").json()["total"] == 0
+        assert client.get("/applications?source=Link").json()["total"] == 0
+
+    def test_combines_with_the_status_filter(self, client, application_payload):
+        self._seed(client, application_payload)
+        body = client.get("/applications?source=LinkedIn&status=applied").json()
+        assert body["total"] == 2
+
+
+class TestSourceOptions:
+    def test_lists_distinct_sources_sorted(self, client, application_payload):
+        for company, source in [
+            ("Alpha", "Wellfound"),
+            ("Beta", "LinkedIn"),
+            ("Gamma", "LinkedIn"),
+        ]:
+            client.post(
+                "/applications",
+                json={**application_payload, "company": company, "source": source},
+            )
+        assert client.get("/applications/sources").json()["sources"] == [
+            "LinkedIn",
+            "Wellfound",
+        ]
+
+    def test_omits_blanks(self, client, application_payload):
+        client.post("/applications", json={**application_payload, "source": None})
+        client.post(
+            "/applications",
+            json={**application_payload, "company": "Other", "source": ""},
+        )
+        assert client.get("/applications/sources").json()["sources"] == []
+
+    def test_includes_a_source_only_present_on_archived_records(
+        self, client, application_payload
+    ):
+        # Hiding it would make those rows unreachable through the filter.
+        created = client.post(
+            "/applications", json={**application_payload, "source": "Dice"}
+        ).json()
+        client.post(f"/applications/{created['id']}/archive")
+        assert "Dice" in client.get("/applications/sources").json()["sources"]
+
+    def test_is_empty_rather_than_failing_with_no_records(self, client):
+        assert client.get("/applications/sources").json()["sources"] == []
+
+    def test_the_path_is_not_swallowed_by_the_detail_route(self, client):
+        # /{application_id} is typed int, so "sources" would 422 if this route
+        # were declared after it.
+        assert client.get("/applications/sources").status_code == 200
