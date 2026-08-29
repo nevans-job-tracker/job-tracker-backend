@@ -34,6 +34,12 @@ class ApplicationStatus(str, enum.Enum):
     # user sees is set by STATUS_LABELS in the frontend, not here.
     interested = "interested"
 
+    # The posting went away — pulled, filled, or expired (KAN-57). Distinct
+    # from `rejected`, which asserts that somebody considered you and said no:
+    # here nobody decided anything, and often the application was never sent.
+    # Appended for the same ordinal reason as `interested` above.
+    posting_closed = "posting_closed"
+
 
 class CompanySize(str, enum.Enum):
     """Wellfound's bands, adopted rather than invented so the values match what

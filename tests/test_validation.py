@@ -443,3 +443,77 @@ class TestDuplicates:
         # Saying so, because a rejection naming a record that is not in the
         # list would otherwise be baffling.
         assert "archived" in response.json()["detail"].lower()
+
+
+class TestPostingClosedStatus:
+    """KAN-57 — the posting went away, which is not a rejection."""
+
+    def test_can_be_set_on_create(self, client, application_payload):
+        response = client.post(
+            "/applications",
+            json={**application_payload, "status": "posting_closed"},
+        )
+        assert response.status_code == 201
+        assert response.json()["status"] == "posting_closed"
+
+    def test_can_be_moved_to_from_interested(self, client, application_payload):
+        # The common case: a job saved but never applied for, whose ad is
+        # pulled. Nothing about the candidate was ever decided.
+        created = client.post(
+            "/applications",
+            json={**application_payload, "status": "interested", "date_applied": None},
+        ).json()
+        response = client.patch(
+            f"/applications/{created['id']}", json={"status": "posting_closed"}
+        )
+        assert response.status_code == 200
+        assert response.json()["status"] == "posting_closed"
+
+    def test_the_move_is_recorded_in_history(self, client, application_payload):
+        created = client.post(
+            "/applications",
+            json={**application_payload, "status": "applied"},
+        ).json()
+        client.patch(
+            f"/applications/{created['id']}", json={"status": "posting_closed"}
+        )
+        history = client.get(f"/applications/{created['id']}/history").json()
+        assert history[-1]["from_status"] == "applied"
+        assert history[-1]["to_status"] == "posting_closed"
+
+    def test_is_filterable(self, client, application_payload):
+        client.post(
+            "/applications",
+            json={**application_payload, "status": "posting_closed"},
+        )
+        client.post(
+            "/applications",
+            json={**application_payload, "company": "Other", "status": "rejected"},
+        )
+        body = client.get("/applications?status=posting_closed").json()
+        assert body["total"] == 1
+
+    def test_is_appended_to_the_enum_not_inserted(self):
+        # MariaDB stores an ENUM as its ordinal, so the position of every
+        # earlier value has to be unchanged or existing rows silently change
+        # meaning. This pins the order the migration wrote.
+        from app.models import ApplicationStatus
+
+        assert [s.value for s in ApplicationStatus] == [
+            "applied",
+            "phone_screen",
+            "interview",
+            "offer",
+            "rejected",
+            "ghosted",
+            "withdrawn",
+            "interested",
+            "posting_closed",
+        ]
+
+    def test_is_still_rejected_if_misspelled(self, client, application_payload):
+        response = client.post(
+            "/applications",
+            json={**application_payload, "status": "posting-closed"},
+        )
+        assert response.status_code == 422
