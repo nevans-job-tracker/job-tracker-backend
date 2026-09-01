@@ -22,6 +22,22 @@ Group=jobtracker
 WorkingDirectory=/opt/job-tracker-backend
 EnvironmentFile=/opt/job-tracker-backend/.env
 
+# Stamps what is about to run, for /health, the app's build marker and the
+# MOTD hook (KAN-63). Written here rather than read from git at request time:
+# the answer cannot change while the process is alive, and the API should not
+# depend on a .git directory beside it.
+#
+# "-" so a failure is ignored, and "+" so it runs with full privileges. The
+# minus matters: a version banner must never be the reason the service will
+# not start. The plus is needed twice over — ProtectSystem=strict below makes
+# the filesystem read-only for this unit, and /var/lib/job-tracker is not
+# writable by the service account either.
+#
+# safe.directory because this runs as root against a tree owned by nicholas,
+# which git otherwise refuses as dubious ownership. A failed rev-parse leaves
+# the value empty, which the app reads as "unknown" rather than as a SHA.
+ExecStartPre=-+/bin/sh -c 'cd /opt/job-tracker-backend && install -d -m 755 /var/lib/job-tracker && { echo "# written by job-tracker-backend.service at each start"; echo "sha=$(git -c safe.directory=/opt/job-tracker-backend rev-parse --short HEAD)"; echo "branch=$(git -c safe.directory=/opt/job-tracker-backend rev-parse --abbrev-ref HEAD)"; } > /var/lib/job-tracker/build-info'
+
 # Alembic owns the schema outright; the app creates nothing at startup
 # (KAN-16). Running this before every start means a deploy carrying a new
 # revision cannot bring up a service whose schema is behind its code.

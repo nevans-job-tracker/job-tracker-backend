@@ -11,6 +11,11 @@ class Settings(BaseSettings):
     db_name: str = "job_tracker"
     cors_origins: str = "http://localhost:5173"
 
+    # Where the unit stamps the deployed branch and SHA before ExecStart
+    # (KAN-63). Absent in development, which reports the build as unknown
+    # rather than failing.
+    build_info_path: str = "/var/lib/job-tracker/build-info"
+
     # Full SQLAlchemy URL, overriding the db_* parts above when set. The test
     # suite points this at SQLite; deployment can use it to supply a URL
     # directly rather than assembling one.

@@ -545,7 +545,13 @@ class TestPagination:
 
 
 def test_health_endpoint(client):
-    assert client.get("/health").json() == {"status": "ok"}
+    body = client.get("/health").json()
+    assert body["status"] == "ok"
+    # The build is additive (KAN-63) and reports "unknown" wherever no unit
+    # stamped it, which is every environment except the deployed one. Asserted
+    # by shape rather than value so the suite does not depend on a file that
+    # only exists on the server.
+    assert set(body["build"]) == {"sha", "branch"}
 
 
 class TestSourceFilter:
