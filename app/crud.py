@@ -19,6 +19,7 @@ def list_applications(
     db: Session,
     search: Optional[str] = None,
     status: Optional[models.ApplicationStatus] = None,
+    activity: str = "active",
     source: Optional[str] = None,
     show: str = "active",
     sort_by: str = "date_applied",
@@ -67,6 +68,22 @@ def list_applications(
     if status:
         query = query.filter(models.Application.status == status)
 
+    # A second, coarser cut of the same column (KAN-62). Both apply when both
+    # are given: the UI only ever sends one, so an impossible pair is only
+    # reachable by hand-editing a URL, and an empty list is a more predictable
+    # answer there than one filter quietly winning.
+    #
+    # sorted() because a frozenset has no order and the emitted IN clause would
+    # otherwise vary between runs, which makes a query log needlessly unstable.
+    if activity == "active":
+        query = query.filter(
+            models.Application.status.in_(sorted(models.ACTIVE_STATUSES))
+        )
+    elif activity == "inactive":
+        query = query.filter(
+            models.Application.status.in_(sorted(models.INACTIVE_STATUSES))
+        )
+
     sort_column = getattr(models.Application, sort_by, models.Application.date_applied)
 
     # A NULL sorts as though it were greater than every real value.
@@ -97,8 +114,19 @@ def list_applications(
         query = query.order_by(missing.desc(), sort_column.desc())
 
     total = query.count()
+
+    # Every row in the table, filters and archive state included, so the list
+    # can say what it is not showing (KAN-62). Counted separately rather than
+    # derived, because `total` has every filter applied and there is no
+    # arithmetic that recovers the whole from it.
+    #
+    # A second COUNT on every list request. It is one indexless count over a
+    # table this project measures in dozens of rows, and the alternative is a
+    # count the screen cannot explain.
+    total_unfiltered = db.query(models.Application).count()
+
     items = query.offset(skip).limit(limit).all()
-    return items, total
+    return items, total, total_unfiltered
 
 
 def _record_status(db: Session, application_id: int, from_status, to_status) -> None:

@@ -57,7 +57,19 @@ def _check_contract_term(employment_type, term_months) -> None:
 def read_applications(
     search: Optional[str] = None,
     status: Optional[models.ApplicationStatus] = None,
+    # A coarser cut of `status`, not a widening of it (KAN-62). Folding
+    # "active" into the `status` parameter would mean a field typed as a single
+    # ApplicationStatus accepting values that are not one, so the API would be
+    # lying about its own type. One dropdown drives both; that is the UI's
+    # business, not the wire's.
+    activity: Optional[str] = Query(None, pattern="^(active|inactive|all)$"),
     source: Optional[str] = None,
+    # `show` keeps its wire values even though `show=active` and
+    # `activity=active` now mean unrelated things — archive state and lifecycle
+    # respectively. Renaming buys a tidier wire for a coordinated backend,
+    # frontend and test change; KAN-50 made the same call about salary_min. The
+    # displayed labels carry the distinction ("Archived Hidden"), and this is
+    # recorded so the mismatch reads as a decision rather than an oversight.
     show: str = Query("active", pattern="^(active|archived|all)$"),
     sort_by: str = Query(
         "date_applied",
@@ -73,10 +85,19 @@ def read_applications(
     include_contacts: bool = False,
     db: Session = Depends(get_db),
 ):
-    items, total = crud.list_applications(
+    # None means "nothing was said about lifecycle", which is not the same as
+    # asking for active. Asking for one status is asking for that status
+    # whatever its lifecycle, so `?status=rejected` on its own has to return
+    # rejected rows rather than the empty intersection with a default it never
+    # mentioned. An explicit `activity` still applies alongside `status` — the
+    # two only stop combining when one of them was never asked for.
+    resolved_activity = activity or ("all" if status else "active")
+
+    items, total, total_unfiltered = crud.list_applications(
         db,
         search=search,
         status=status,
+        activity=resolved_activity,
         source=source,
         show=show,
         sort_by=sort_by,
@@ -91,6 +112,11 @@ def read_applications(
     out = schemas.ApplicationOut if include_contacts else schemas.ApplicationListOut
     return {
         "total": total,
+        # What the filters excluded, so the list can account for rows that are
+        # not on screen (KAN-62). With archive state and activity as
+        # independent axes, a row can be missing for either reason and neither
+        # dropdown says so on its own.
+        "total_unfiltered": total_unfiltered,
         "items": [out.model_validate(i) for i in items],
     }
 

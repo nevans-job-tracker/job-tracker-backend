@@ -41,6 +41,34 @@ class ApplicationStatus(str, enum.Enum):
     posting_closed = "posting_closed"
 
 
+# The lifecycle split the list filters on by default (KAN-62): an application
+# is either still in play or it is over.
+#
+# Derived from `status` rather than stored. That is the whole point — a row
+# becomes inactive the moment its status says so, with no second gesture to
+# remember. Hiding finished work by archiving each record was the other
+# candidate and was rejected: archiving is a write and fails by omission,
+# where a filter over a field the workflow already maintains cannot.
+#
+# Not the same axis as `archived_at`, which stays a manual "this record is
+# wrong or redundant" and applies to any status. Both filters apply at once.
+ACTIVE_STATUSES = frozenset(
+    {
+        ApplicationStatus.interested,
+        ApplicationStatus.applied,
+        ApplicationStatus.phone_screen,
+        ApplicationStatus.interview,
+        ApplicationStatus.offer,
+    }
+)
+
+# Computed rather than typed out, so a status added to the enum later cannot be
+# left out of both sets. A new one is inactive until somebody says otherwise,
+# which is the safer direction to be wrong in: it hides a row from the default
+# view rather than quietly reintroducing clutter.
+INACTIVE_STATUSES = frozenset(ApplicationStatus) - ACTIVE_STATUSES
+
+
 class CompanySize(str, enum.Enum):
     """Wellfound's bands, adopted rather than invented so the values match what
     the postings already say. See REQUIREMENTS.md §2 for the trade-off.
