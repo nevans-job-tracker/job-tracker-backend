@@ -289,12 +289,6 @@ def status_timeline(db: Session):
     first = changes[0].changed_at.date()
     last = max(first, datetime.utcnow().date())
 
-    # How many applications enter on the very first day. Everything older than
-    # KAN-42 was stamped at the migration, so the left edge is a step rather
-    # than a slope — and rendering that without saying so would claim a day
-    # when nothing of the sort happened. Returned as a number so the note
-    # scales with the data instead of being a fixed sentence that goes stale.
-    opening = sum(1 for c in changes if c.changed_at.date() == first)
 
     current: dict[int, str] = {}
     series = []
@@ -314,6 +308,19 @@ def status_timeline(db: Session):
 
         series.append({"date": day.isoformat(), "counts": counts})
         day += timedelta(days=1)
+
+    # How many applications the chart opens with. Everything predating KAN-42
+    # was stamped at the migration, so the left edge is a step rather than a
+    # slope, and rendering that without saying so would claim a day of
+    # activity that did not happen. Returned as a number so the note scales
+    # with the data instead of being a fixed sentence that goes stale.
+    #
+    # **Read off the first day's snapshot, not counted from the rows landing
+    # that day.** Those differ whenever an application moved twice on the
+    # opening day — it contributes two rows and one application — and a number
+    # the chart beside it contradicts is worse than no number. Taken from the
+    # series, the two cannot disagree.
+    opening = sum(series[0]["counts"].values())
 
     return {"series": series, "opening_count": opening}
 

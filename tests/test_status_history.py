@@ -354,6 +354,20 @@ class TestStatusTimeline:
         # shrinks, and the note has to shrink with it.
         assert self.timeline(client)["opening_count"] == 2
 
+    def test_opening_count_agrees_with_the_first_day_it_describes(
+        self, client, application_payload
+    ):
+        # Found on the deployed data: 49 history rows landed on the opening day
+        # but only 48 applications existed, because one of them moved twice
+        # that day. Counting rows made the note claim a number the chart beside
+        # it contradicted, which is worse than having no note.
+        created = client.post("/applications", json=application_payload).json()
+        client.patch(f"/applications/{created['id']}", json={"status": "offer"})
+
+        body = self.timeline(client)
+        assert body["opening_count"] == sum(body["series"][0]["counts"].values())
+        assert body["opening_count"] == 1
+
     def test_it_is_not_read_as_an_application_id(self, client):
         # /{application_id} is typed int, so declaration order is what keeps
         # this from 422-ing. Same trap as /sources (KAN-56).
