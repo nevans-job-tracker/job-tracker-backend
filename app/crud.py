@@ -1,10 +1,16 @@
 from datetime import datetime, timedelta
 from typing import Optional
 
-from sqlalchemy import func, or_
+from sqlalchemy import case, func, or_
 from sqlalchemy.orm import Session, selectinload
 
 from app import models, schemas
+
+
+# 40 hours across 52 weeks — what an hourly rate is multiplied by so it can be
+# ordered against an annual salary. Used for sorting and nothing else; see
+# list_applications.
+HOURS_PER_YEAR = 2080
 
 
 def get_application(db: Session, application_id: int) -> Optional[models.Application]:
@@ -85,6 +91,31 @@ def list_applications(
         )
 
     sort_column = getattr(models.Application, sort_by, models.Application.date_applied)
+
+    # An hourly rate is annualised *for the ordering only* (KAN-72).
+    #
+    # The two pay periods share one pair of columns, so sorting the stored
+    # number does not order the list — it segregates it. Measured on the real
+    # data: 22 of 140 rows are hourly, so descending gives 118 annual rows and
+    # then every hourly one, and a $120/hr contract sorts below a $60k salary.
+    # "Sort by pay" would answer which period a row uses rather than what it
+    # pays.
+    #
+    # 2080 is 40 hours across 52 weeks, and it is an assumption — a contract is
+    # exactly the case where it may not hold, which is why the list says so
+    # whenever this sort is active rather than presenting the order as fact.
+    #
+    # It touches nothing but ORDER BY. No stored value changes, and the column
+    # still displays `86/hr`, so this cannot leak into the data the way KAN-50's
+    # rejected `salary_min < 1000 => hourly` backfill would have.
+    if sort_by in ("salary_min", "salary_max"):
+        sort_column = case(
+            (
+                models.Application.pay_period == models.PayPeriod.hourly,
+                sort_column * HOURS_PER_YEAR,
+            ),
+            else_=sort_column,
+        )
 
     # A NULL sorts as though it were greater than every real value.
     #

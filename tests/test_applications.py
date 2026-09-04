@@ -512,6 +512,86 @@ class TestNullSortOrder:
         assert client.get("/applications").json()["total"] == 3
 
 
+class TestPaySorting:
+    """Sorting by pay, where two periods share one pair of columns (KAN-72).
+
+    The stored numbers do not order the list, they segregate it: on the real
+    data 22 of 140 rows are hourly, so a raw descending sort gives every annual
+    row and then every hourly one. An hourly rate is therefore multiplied out
+    to a year for the ORDER BY only.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _seed(self, make_application):
+        # $86/hr is ~$178,880 a year, so it belongs between these two salaries
+        # rather than below both of them.
+        make_application(
+            company="Salary high", salary_min=200000, salary_max=220000
+        )
+        make_application(
+            company="Hourly", salary_min=86, salary_max=90, pay_period="hourly"
+        )
+        make_application(
+            company="Salary low", salary_min=60000, salary_max=70000
+        )
+
+    def _companies(self, client, query):
+        return [i["company"] for i in client.get(f"/applications{query}").json()["items"]]
+
+    def test_hourly_interleaves_with_annual_by_min(self, client):
+        assert self._companies(client, "?sort_by=salary_min&sort_dir=desc") == [
+            "Salary high",
+            "Hourly",
+            "Salary low",
+        ]
+
+    def test_hourly_interleaves_with_annual_by_max(self, client):
+        # 90/hr is ~187,200 — the max column is annualised on the same rule, so
+        # the two keys cannot disagree about what a row is worth.
+        assert self._companies(client, "?sort_by=salary_max&sort_dir=desc") == [
+            "Salary high",
+            "Hourly",
+            "Salary low",
+        ]
+
+    def test_ascending_reverses_the_whole_order(self, client):
+        assert self._companies(client, "?sort_by=salary_min&sort_dir=asc") == [
+            "Salary low",
+            "Hourly",
+            "Salary high",
+        ]
+
+    def test_a_row_without_pay_still_sorts_last_ascending(
+        self, client, make_application
+    ):
+        # The NULL-sorts-greatest rule (KAN-31) has to survive the CASE wrapped
+        # around the column, or the annualising would quietly special-case one
+        # sort key out of the one rule §4.2 insists on.
+        make_application(company="No pay stated")
+        assert self._companies(client, "?sort_by=salary_min&sort_dir=asc")[-1] == (
+            "No pay stated"
+        )
+
+    def test_it_changes_no_stored_value(self, client):
+        """Ordering only. The multiplier must never reach the row — the column
+        still holds and returns 86, and the list still renders it as 86/hr."""
+        row = next(
+            i
+            for i in client.get("/applications").json()["items"]
+            if i["company"] == "Hourly"
+        )
+        assert row["salary_min"] == "86.00"
+        assert row["pay_period"] == "hourly"
+
+    def test_it_does_not_leak_into_other_sorts(self, client):
+        """The CASE is attached to the two pay keys and nothing else."""
+        assert self._companies(client, "?sort_by=company&sort_dir=asc") == [
+            "Hourly",
+            "Salary high",
+            "Salary low",
+        ]
+
+
 class TestPagination:
     @pytest.fixture(autouse=True)
     def _seed(self, make_application):
