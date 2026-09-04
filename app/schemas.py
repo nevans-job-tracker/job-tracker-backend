@@ -190,6 +190,25 @@ class StatusChangeOut(BaseModel):
     changed_at: datetime
 
 
+class StatusTimelinePoint(BaseModel):
+    """One day of the status-over-time chart (KAN-70)."""
+
+    date: date
+    # Statuses holding no applications that day are simply absent rather than
+    # present as zero. Nine statuses across months of days is mostly zeros,
+    # and the chart has to supply a zero for a missing key regardless.
+    counts: dict[str, int]
+
+
+class StatusTimelineOut(BaseModel):
+    series: List[StatusTimelinePoint]
+    # Applications entering on the first day, which is a step rather than a
+    # slope — everything predating KAN-42 was stamped at the migration. The
+    # chart renders a caveat from this rather than asserting a fixed sentence
+    # that stops being true as real history accumulates. See §2.2.
+    opening_count: int
+
+
 class ApplicationOut(ApplicationListOut):
     """Detail view, including the application's contacts."""
 

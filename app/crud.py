@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from sqlalchemy import func, or_
@@ -253,6 +253,69 @@ def set_archived(
     db.commit()
     db.refresh(db_application)
     return db_application
+
+
+def status_timeline(db: Session):
+    """How many applications sat in each status on each day (KAN-70).
+
+    Reconstructed by replaying `status_changes` rather than stored: walk the
+    days from the first recorded change to today, apply each change as its
+    date passes, and snapshot the counts. The applications table holds only
+    the current status, so a day-by-day picture can come from nowhere else.
+
+    Computed here rather than in the browser. Sending every history row and
+    reconstructing client-side would put this logic somewhere it has to be
+    re-derived per consumer, and would grow the response with the table.
+
+    **Archived applications are included.** Archiving records whether a record
+    should still be in view (§4.1), not something that happened to it —
+    excluding them would make bands shrink on days when nothing changed.
+
+    A day with no changes still gets an entry, carrying the previous day's
+    counts forward. Without that the chart would join across gaps and imply
+    movement that did not happen.
+    """
+    changes = (
+        db.query(models.StatusChange)
+        .order_by(models.StatusChange.changed_at, models.StatusChange.id)
+        .all()
+    )
+    if not changes:
+        # An empty series rather than a single zeroed day. The screen has its
+        # own empty state, and inventing a day would put a point on a chart of
+        # nothing that happened.
+        return {"series": [], "opening_count": 0}
+
+    first = changes[0].changed_at.date()
+    last = max(first, datetime.utcnow().date())
+
+    # How many applications enter on the very first day. Everything older than
+    # KAN-42 was stamped at the migration, so the left edge is a step rather
+    # than a slope — and rendering that without saying so would claim a day
+    # when nothing of the sort happened. Returned as a number so the note
+    # scales with the data instead of being a fixed sentence that goes stale.
+    opening = sum(1 for c in changes if c.changed_at.date() == first)
+
+    current: dict[int, str] = {}
+    series = []
+    index = 0
+    day = first
+
+    while day <= last:
+        # Apply everything recorded on or before this day.
+        while index < len(changes) and changes[index].changed_at.date() <= day:
+            change = changes[index]
+            current[change.application_id] = change.to_status.value
+            index += 1
+
+        counts: dict[str, int] = {}
+        for status in current.values():
+            counts[status] = counts.get(status, 0) + 1
+
+        series.append({"date": day.isoformat(), "counts": counts})
+        day += timedelta(days=1)
+
+    return {"series": series, "opening_count": opening}
 
 
 def list_status_changes(db: Session, application_id: int) -> list[models.StatusChange]:

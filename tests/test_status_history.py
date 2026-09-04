@@ -242,3 +242,119 @@ def test_only_two_paths_change_a_status():
     )
     # And the two recording sites are still there.
     assert source.count("_record_status(") == 3  # one definition, two calls
+
+
+class TestStatusTimeline:
+    """GET /applications/status-timeline — what the chart reads (KAN-70).
+
+    The interesting property is that a day is a *snapshot*, not a tally of
+    that day's events: an application counts in exactly one status on every
+    day from the day it appears until today, whether or not anything happened
+    to it. A chart built on event counts would show empty columns for the
+    quiet days, which is the opposite of what "how is it going" asks.
+    """
+
+    def timeline(self, client):
+        response = client.get("/applications/status-timeline")
+        assert response.status_code == 200
+        return response.json()
+
+    def test_no_history_is_an_empty_series(self, client):
+        # Not a 404 and not a single zeroed day. The screen has its own empty
+        # state, and inventing a day would put a dot on a chart of nothing.
+        body = self.timeline(client)
+        assert body == {"series": [], "opening_count": 0}
+
+    def test_a_created_application_counts_from_its_first_day(
+        self, client, application_payload
+    ):
+        client.post("/applications", json=application_payload)
+        body = self.timeline(client)
+
+        assert len(body["series"]) == 1
+        assert body["series"][0]["counts"] == {"applied": 1}
+        assert body["opening_count"] == 1
+
+    def test_a_move_replaces_rather_than_adds(self, client, application_payload):
+        created = client.post("/applications", json=application_payload).json()
+        client.patch(f"/applications/{created['id']}", json={"status": "offer"})
+
+        # Both rows land today, so the day's snapshot is the *end* state. The
+        # application must not be counted twice — it is in one status at a
+        # time, and a stacked chart summing to two applications from one would
+        # be wrong in the way that is hardest to notice.
+        counts = self.timeline(client)["series"][-1]["counts"]
+        assert counts == {"offer": 1}
+
+    def test_every_day_sums_to_the_applications_that_exist(
+        self, client, make_application
+    ):
+        make_application(company="One")
+        make_application(company="Two")
+        make_application(company="Three")
+
+        for point in self.timeline(client)["series"]:
+            assert sum(point["counts"].values()) == 3
+
+    def test_quiet_days_carry_the_previous_counts_forward(self, client, application_payload):
+        # Backdated so the series has to span days nothing happened on.
+        from datetime import datetime, timedelta
+
+        from app.database import SessionLocal
+
+        created = client.post("/applications", json=application_payload).json()
+        with SessionLocal() as db:
+            row = db.query(models.StatusChange).one()
+            row.changed_at = datetime.utcnow() - timedelta(days=3)
+            db.commit()
+
+        series = self.timeline(client)["series"]
+        assert len(series) == 4
+        # Without this the chart would join across the gap and imply movement.
+        assert all(point["counts"] == {"applied": 1} for point in series)
+
+    def test_dates_are_consecutive(self, client, application_payload):
+        from datetime import date, datetime, timedelta
+
+        from app.database import SessionLocal
+
+        client.post("/applications", json=application_payload)
+        with SessionLocal() as db:
+            row = db.query(models.StatusChange).one()
+            row.changed_at = datetime.utcnow() - timedelta(days=5)
+            db.commit()
+
+        dates = [date.fromisoformat(p["date"]) for p in self.timeline(client)["series"]]
+        assert dates[-1] == date.today()
+        assert all(
+            later - earlier == timedelta(days=1)
+            for earlier, later in zip(dates, dates[1:])
+        )
+
+    def test_archived_applications_are_still_counted(self, client, make_application):
+        first = make_application(company="Kept")
+        second = make_application(company="Filed")
+        client.post(f"/applications/{second['id']}/archive")
+
+        # Archiving is a view decision (§4.1), not something that happened to
+        # the application. Dropping it would make a band shrink on a day when
+        # nothing about its status changed.
+        counts = self.timeline(client)["series"][-1]["counts"]
+        assert sum(counts.values()) == 2
+
+    def test_opening_count_reports_the_step_at_the_left_edge(
+        self, client, make_application
+    ):
+        make_application(company="One")
+        make_application(company="Two")
+
+        # The screen renders a caveat from this number rather than a fixed
+        # sentence: records predating KAN-42 were stamped at the migration, so
+        # the first day is a step. As real history accumulates the step
+        # shrinks, and the note has to shrink with it.
+        assert self.timeline(client)["opening_count"] == 2
+
+    def test_it_is_not_read_as_an_application_id(self, client):
+        # /{application_id} is typed int, so declaration order is what keeps
+        # this from 422-ing. Same trap as /sources (KAN-56).
+        assert client.get("/applications/status-timeline").status_code == 200

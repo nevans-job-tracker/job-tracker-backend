@@ -136,6 +136,27 @@ def read_sources(db: Session = Depends(get_db)):
     return {"sources": crud.list_sources(db)}
 
 
+@router.get("/status-timeline", response_model=schemas.StatusTimelineOut)
+def read_status_timeline(db: Session = Depends(get_db)):
+    """Applications per status per day, for the insights screen (KAN-70).
+
+    Declared before /{application_id} for the same reason /sources is: that
+    path parameter is typed int, so "status-timeline" would 422 rather than
+    fall through.
+
+    **Computed here rather than in the browser.** The alternative is shipping
+    every history row and replaying it client-side, which puts the same logic
+    somewhere it has to be re-derived per consumer and grows the response with
+    the table rather than with the number of days.
+
+    **Archived applications are included.** Archiving records whether a record
+    should still be in view (§4.1) — not something that happened to the
+    application — so excluding them would make bands shrink on days when
+    nothing actually changed.
+    """
+    return crud.status_timeline(db)
+
+
 @router.get("/{application_id}", response_model=schemas.ApplicationOut)
 def read_application(application_id: int, db: Session = Depends(get_db)):
     db_application = crud.get_application(db, application_id)
