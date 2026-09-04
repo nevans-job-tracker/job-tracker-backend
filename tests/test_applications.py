@@ -561,16 +561,47 @@ class TestPaySorting:
             "Salary high",
         ]
 
-    def test_a_row_without_pay_still_sorts_last_ascending(
-        self, client, make_application
-    ):
-        # The NULL-sorts-greatest rule (KAN-31) has to survive the CASE wrapped
-        # around the column, or the annualising would quietly special-case one
-        # sort key out of the one rule §4.2 insists on.
+    def test_a_row_without_pay_sorts_last_ascending(self, client, make_application):
         make_application(company="No pay stated")
         assert self._companies(client, "?sort_by=salary_min&sort_dir=asc")[-1] == (
             "No pay stated"
         )
+
+    def test_a_row_without_pay_sorts_last_descending_too(
+        self, client, make_application
+    ):
+        """Pay is the stated exception to NULL-sorts-greatest (KAN-72).
+
+        That rule holds elsewhere because a missing `date_applied` really is
+        later than every real date. A missing salary is not higher than every
+        salary, it is unrecorded — so "highest paid first" must not open with
+        every row that states no figure. On the deployed data that was 28 of
+        140, which put the top salary at position 29 and off the first screen.
+        """
+        make_application(company="No pay stated")
+        assert self._companies(client, "?sort_by=salary_min&sort_dir=desc")[-1] == (
+            "No pay stated"
+        )
+
+    def test_the_exception_is_confined_to_the_two_pay_keys(
+        self, client, make_application
+    ):
+        """Every other column keeps NULL-sorts-greatest.
+
+        Generalising blanks-always-last would reverse KAN-31's purpose on the
+        default view, sinking un-applied jobs below the Load more control —
+        which is the failure that story exists to have fixed.
+        """
+        # application_payload carries a default date, so the undated row has to
+        # clear it explicitly — otherwise every row is dated the same day and
+        # this asserts tie-break order rather than the rule.
+        dated = make_application(company="Dated", date_applied="2026-01-01")
+        undated = make_application(company="Undated", date_applied=None)
+        assert undated["date_applied"] is None
+        assert dated["date_applied"] == "2026-01-01"
+
+        order = self._companies(client, "?sort_by=date_applied&sort_dir=desc")
+        assert order.index("Undated") < order.index("Dated")
 
     def test_it_changes_no_stored_value(self, client):
         """Ordering only. The multiplier must never reach the row — the column

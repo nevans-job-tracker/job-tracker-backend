@@ -138,11 +138,35 @@ def list_applications(
     # Expressed as a leading `IS NULL` key because MariaDB has no
     # `NULLS FIRST` / `NULLS LAST`; the comparison yields 0 or 1 on both it and
     # SQLite, so the two agree.
+    # **Pay is the one stated exception** (KAN-72): a blank sorts last in both
+    # directions rather than largest.
+    #
+    # The rule above is not weakened by this, because its own justification is
+    # what does not reach here. A missing `date_applied` sorts largest for a
+    # *reason* — an application not yet sent has no date because that date, if
+    # it ever exists, is in the future — and "unknown" is genuinely "later than
+    # every real date". A missing salary is not higher than every salary; it is
+    # simply unrecorded. Applying one rule everywhere was a simplification, and
+    # this is the column where the simplification first costs something real.
+    #
+    # What it cost, measured on the deployed data: 28 of 140 rows state no pay,
+    # so "highest paid first" put the top figure at position 29 — below the
+    # fold, which is the same off-screen failure KAN-31 exists to have fixed,
+    # arriving through the fix rather than through the original behaviour.
+    #
+    # Deliberately not generalised to every column. Blanks-always-last would
+    # reverse KAN-31's purpose on the default view, sinking un-applied jobs
+    # below the Load more control.
+    blanks_always_last = sort_by in ("salary_min", "salary_max")
+
     missing = sort_column.is_(None)
     if sort_dir == "asc":
         query = query.order_by(missing.asc(), sort_column.asc())
     else:
-        query = query.order_by(missing.desc(), sort_column.desc())
+        query = query.order_by(
+            missing.asc() if blanks_always_last else missing.desc(),
+            sort_column.desc(),
+        )
 
     total = query.count()
 
