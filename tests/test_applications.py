@@ -433,7 +433,7 @@ class TestFilterAndSort:
         assert [i["company"] for i in items] == ["Alpha", "Bravo", "Charlie"]
 
     @pytest.mark.parametrize(
-        "column", ["company", "role_title", "location", "source", "status",
+        "column", ["id", "company", "role_title", "location", "source", "status",
                    "company_size", "years_experience_min",
                    "date_applied", "next_action_date", "salary_min", "salary_max",
                    "created_at"]
@@ -441,11 +441,24 @@ class TestFilterAndSort:
     def test_permitted_sort_columns(self, client, column):
         assert client.get(f"/applications?sort_by={column}").status_code == 200
 
-    @pytest.mark.parametrize("column", ["notes", "id", "job_description", "; DROP"])
+    @pytest.mark.parametrize("column", ["notes", "job_description", "; DROP"])
     def test_rejected_sort_columns(self, client, column):
         """crud.list_applications resolves the column with getattr, so this
         pattern is the only guard against an arbitrary attribute lookup."""
         assert client.get(f"/applications?sort_by={column}").status_code == 422
+
+    def test_sort_by_id(self, client):
+        """`id` moved from the rejected list to the permitted one in KAN-74,
+        once the column went on screen. The guard above is unchanged in kind —
+        it still admits only real columns and still stops an arbitrary getattr
+        — but this one assertion reverses, so it is worth stating outright
+        rather than as a parametrize entry that quietly changed sides."""
+        asc = [i["id"] for i in client.get(
+            "/applications?sort_by=id&sort_dir=asc").json()["items"]]
+        assert asc == sorted(asc)
+        desc = [i["id"] for i in client.get(
+            "/applications?sort_by=id&sort_dir=desc").json()["items"]]
+        assert desc == sorted(desc, reverse=True)
 
     def test_invalid_sort_direction_rejected(self, client):
         assert client.get("/applications?sort_dir=sideways").status_code == 422

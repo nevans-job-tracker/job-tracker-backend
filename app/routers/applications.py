@@ -73,8 +73,16 @@ def read_applications(
     show: str = Query("active", pattern="^(active|archived|all)$"),
     sort_by: str = Query(
         "date_applied",
+        # `id` produces the same order `created_at` does — both are assigned by
+        # the server on insert — so it is a second key for one order rather
+        # than a new one (KAN-74). It is admitted anyway because the column is
+        # now on screen, and a header that cannot be clicked while every
+        # neighbour can reads as broken. The redundancy is cheaper than that.
+        #
+        # It is also the one sort key the NULL handling below does nothing to:
+        # a primary key is never NULL, so `missing` is uniformly false.
         pattern=(
-            "^(company|role_title|location|source|status|company_size|"
+            "^(id|company|role_title|location|source|status|company_size|"
             "years_experience_min|employment_type|date_applied|"
             "next_action_date|salary_min|salary_max|created_at)$"
         ),
