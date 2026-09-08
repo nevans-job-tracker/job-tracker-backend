@@ -40,6 +40,13 @@ class ApplicationStatus(str, enum.Enum):
     # Appended for the same ordinal reason as `interested` above.
     posting_closed = "posting_closed"
 
+    # The posting was fraudulent (KAN-79). Distinct from `posting_closed`,
+    # which says a real opportunity ended: this one says there was never an
+    # opportunity, so counting it among the closed postings would overstate
+    # how many genuine roles the search actually saw. Appended for the same
+    # ordinal reason as the two above.
+    scam = "scam"
+
 
 # The lifecycle split the list filters on by default (KAN-62): an application
 # is either still in play or it is over.

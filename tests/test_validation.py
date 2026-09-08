@@ -509,11 +509,91 @@ class TestPostingClosedStatus:
             "withdrawn",
             "interested",
             "posting_closed",
+            "scam",
         ]
 
     def test_is_still_rejected_if_misspelled(self, client, application_payload):
         response = client.post(
             "/applications",
             json={**application_payload, "status": "posting-closed"},
+        )
+        assert response.status_code == 422
+
+
+class TestScamStatus:
+    """A posting that turned out to be fraudulent (KAN-79).
+
+    Distinct from `posting_closed`, which says a real opportunity ended. This
+    one says there was never an opportunity, so filing them together would
+    overstate how many genuine roles the search saw.
+    """
+
+    def test_it_can_be_set(self, client, application_payload):
+        response = client.post(
+            "/applications", json={**application_payload, "status": "scam"}
+        )
+        assert response.status_code == 201
+        assert response.json()["status"] == "scam"
+
+    def test_it_is_inactive_by_construction(self):
+        """Not listed anywhere — both sets are complements of ACTIVE_STATUSES.
+
+        KAN-62 computes the inactive set rather than typing it out precisely so
+        a status added later cannot fall into neither group. This asserts the
+        property rather than the membership, so it keeps holding for the next
+        one too.
+        """
+        from app.models import ACTIVE_STATUSES, INACTIVE_STATUSES, ApplicationStatus
+
+        assert ApplicationStatus.scam in INACTIVE_STATUSES
+        assert ApplicationStatus.scam not in ACTIVE_STATUSES
+        assert ACTIVE_STATUSES | INACTIVE_STATUSES == frozenset(ApplicationStatus)
+
+    def test_it_is_hidden_from_the_default_list(self, client, application_payload):
+        # The default view is the active lifecycle, so a scam drops out of the
+        # worklist without being archived — which is the point of it being
+        # inactive rather than merely another label.
+        client.post("/applications", json={**application_payload, "status": "scam"})
+        assert client.get("/applications").json()["total"] == 0
+        assert client.get("/applications?activity=inactive").json()["total"] == 1
+
+    def test_it_is_filterable_on_its_own(self, client, application_payload):
+        client.post("/applications", json={**application_payload, "status": "scam"})
+        client.post(
+            "/applications",
+            json={
+                **application_payload,
+                "company": "Other",
+                "status": "posting_closed",
+            },
+        )
+        # The distinction is only worth having if the two can be told apart —
+        # "how many postings closed on their own" must not count scams.
+        assert client.get("/applications?status=scam").json()["total"] == 1
+        assert (
+            client.get("/applications?status=posting_closed").json()["total"] == 1
+        )
+
+    def test_moving_to_it_is_recorded(self, client, application_payload):
+        """The history enum has to move with the applications one, or a
+        transition into the new status could not be written at all."""
+        from app import models
+        from app.database import SessionLocal
+
+        created = client.post("/applications", json=application_payload).json()
+        client.patch(f"/applications/{created['id']}", json={"status": "scam"})
+
+        with SessionLocal() as db:
+            rows = (
+                db.query(models.StatusChange)
+                .filter(models.StatusChange.application_id == created["id"])
+                .order_by(models.StatusChange.id)
+                .all()
+            )
+        assert rows[-1].to_status == models.ApplicationStatus.scam
+
+    def test_it_is_rejected_if_misspelled(self, client, application_payload):
+        response = client.post(
+            "/applications", json={**application_payload, "status": "scammed"}
         )
         assert response.status_code == 422
