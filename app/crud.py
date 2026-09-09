@@ -159,6 +159,10 @@ def list_applications(
     # below the Load more control.
     blanks_always_last = sort_by in ("salary_min", "salary_max")
 
+    # `is_favorite` is NOT NULL (KAN-81), so `missing` below is uniformly
+    # false for it — the same footnote `id` carries above. Sorting descending
+    # puts favorites first for free: True sorts after False, and no
+    # tiebreaker is added within each group.
     missing = sort_column.is_(None)
     if sort_dir == "asc":
         query = query.order_by(missing.asc(), sort_column.asc())

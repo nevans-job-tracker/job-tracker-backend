@@ -84,7 +84,7 @@ def read_applications(
         pattern=(
             "^(id|company|role_title|location|source|status|company_size|"
             "years_experience_min|employment_type|date_applied|"
-            "next_action_date|salary_min|salary_max|created_at)$"
+            "next_action_date|salary_min|salary_max|created_at|is_favorite)$"
         ),
     ),
     sort_dir: str = Query("desc", pattern="^(asc|desc)$"),

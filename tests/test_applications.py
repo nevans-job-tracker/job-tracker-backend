@@ -369,6 +369,43 @@ class TestUpdate:
         assert client.patch("/applications/999999", json={}).status_code == 404
 
 
+class TestFavorite:
+    """is_favorite (KAN-81) — a third axis alongside status and archived_at."""
+
+    def test_defaults_to_false(self, client, make_application):
+        created = make_application()
+        assert created["is_favorite"] is False
+
+    def test_can_be_created_favorited(self, client, application_payload):
+        response = client.post(
+            "/applications", json={**application_payload, "is_favorite": True}
+        )
+        assert response.status_code == 201
+        assert response.json()["is_favorite"] is True
+
+    def test_toggled_through_patch(self, client, make_application):
+        created = make_application()
+        response = client.patch(
+            f"/applications/{created['id']}", json={"is_favorite": True}
+        )
+        assert response.status_code == 200
+        assert response.json()["is_favorite"] is True
+
+        response = client.patch(
+            f"/applications/{created['id']}", json={"is_favorite": False}
+        )
+        assert response.status_code == 200
+        assert response.json()["is_favorite"] is False
+
+    def test_patching_other_fields_leaves_it_unset(self, client, make_application):
+        created = make_application(is_favorite=True)
+        response = client.patch(
+            f"/applications/{created['id']}", json={"status": "interview"}
+        )
+        assert response.status_code == 200
+        assert response.json()["is_favorite"] is True
+
+
 class TestNoDelete:
     def test_there_is_no_delete_route(self, client, make_application):
         """Applications are archived, never deleted — see REQUIREMENTS.md §4.1.
@@ -436,7 +473,7 @@ class TestFilterAndSort:
         "column", ["id", "company", "role_title", "location", "source", "status",
                    "company_size", "years_experience_min",
                    "date_applied", "next_action_date", "salary_min", "salary_max",
-                   "created_at"]
+                   "created_at", "is_favorite"]
     )
     def test_permitted_sort_columns(self, client, column):
         assert client.get(f"/applications?sort_by={column}").status_code == 200
@@ -459,6 +496,18 @@ class TestFilterAndSort:
         desc = [i["id"] for i in client.get(
             "/applications?sort_by=id&sort_dir=desc").json()["items"]]
         assert desc == sorted(desc, reverse=True)
+
+    def test_sort_by_favorite_brings_starred_rows_first(self, client, make_application):
+        """`is_favorite` is NOT NULL (KAN-81), so the leading IS NULL key that
+        the other sort columns use has nothing to do here — the same footnote
+        `id` carries. Descending puts favorites first for free: True sorts
+        after False."""
+        make_application(company="Plain")
+        make_application(company="Starred", is_favorite=True)
+        items = client.get(
+            "/applications?sort_by=is_favorite&sort_dir=desc"
+        ).json()["items"]
+        assert [i["is_favorite"] for i in items[:1]] == [True]
 
     def test_invalid_sort_direction_rejected(self, client):
         assert client.get("/applications?sort_dir=sideways").status_code == 422

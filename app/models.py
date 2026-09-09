@@ -1,6 +1,7 @@
 import enum
 
 from sqlalchemy import (
+    Boolean,
     Column,
     ForeignKey,
     Index,
@@ -201,6 +202,15 @@ class Application(Base):
     # Archive marker. NULL means active. Applications are archived, never
     # deleted, and never purged — see REQUIREMENTS.md §4.1.
     archived_at = Column(DateTime, nullable=True, index=True)
+
+    # A third axis alongside status and archived_at, independent of both:
+    # "this is one of the good ones" is a judgement laid across the lifecycle
+    # rather than a stage in it. NOT NULL with a default, the pay_period
+    # reasoning rather than employment_type's (§2) — every record either is or
+    # is not a favorite, so there is no honest "unset". That also makes it
+    # safe for the extension, which POSTs without knowing the column exists.
+    # See KAN-81.
+    is_favorite = Column(Boolean, nullable=False, default=False, server_default="0")
 
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

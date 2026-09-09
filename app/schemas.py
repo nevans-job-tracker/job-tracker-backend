@@ -105,6 +105,9 @@ class ApplicationBase(BaseModel):
     next_action_date: Optional[date] = None
     job_description: Optional[str] = None
     cover_letter: Optional[str] = None
+    # Every record either is or is not a favorite, so this defaults rather
+    # than being optional — there is no honest "unset". See KAN-81.
+    is_favorite: bool = False
 
     _check_job_link = field_validator("job_link")(_validated_job_link)
 
@@ -153,6 +156,7 @@ class ApplicationUpdate(BaseModel):
     next_action_date: Optional[date] = None
     job_description: Optional[str] = None
     cover_letter: Optional[str] = None
+    is_favorite: Optional[bool] = None
 
     _check_job_link = field_validator("job_link")(_validated_job_link)
 
