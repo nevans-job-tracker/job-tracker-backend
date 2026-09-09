@@ -72,7 +72,13 @@ def read_applications(
     # recorded so the mismatch reads as a decision rather than an oversight.
     show: str = Query("active", pattern="^(active|archived|all)$"),
     sort_by: str = Query(
-        "date_applied",
+        # Was `date_applied` until KAN-77. That default was ordering nothing:
+        # measured on the deployed data, 145 of 147 records had no
+        # date_applied, so almost every row on the default view tied on a NULL
+        # key and the tie broke as ascending id — oldest first, with a
+        # just-saved record sinking toward Load more. `created_at` is never
+        # NULL, so the default now actually orders by something.
+        "created_at",
         # `id` produces the same order `created_at` does — both are assigned by
         # the server on insert — so it is a second key for one order rather
         # than a new one (KAN-74). It is admitted anyway because the column is
@@ -80,7 +86,8 @@ def read_applications(
         # neighbour can reads as broken. The redundancy is cheaper than that.
         #
         # It is also the one sort key the NULL handling below does nothing to:
-        # a primary key is never NULL, so `missing` is uniformly false.
+        # a primary key is never NULL, so `missing` is uniformly false. The
+        # same is now true of the default itself.
         pattern=(
             "^(id|company|role_title|location|source|status|company_size|"
             "years_experience_min|employment_type|date_applied|"

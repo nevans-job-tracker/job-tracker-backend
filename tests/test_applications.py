@@ -1,5 +1,8 @@
 """Application CRUD, search, filtering, sorting and pagination."""
 import pytest
+from sqlalchemy import text
+
+from app.database import engine
 
 
 class TestCreate:
@@ -460,8 +463,44 @@ class TestFilterAndSort:
         assert {i["company"] for i in body["items"]} == {"Alpha", "Bravo"}
 
     def test_default_sort_is_newest_first(self, client):
+        """KAN-77: the default sort is `created_at`, not `date_applied` — on
+        the deployed data, 145 of 147 records had no `date_applied`, so the
+        old default tied on almost every row and broke ties as ascending id,
+        oldest first.
+
+        `created_at` is server-assigned via `CURRENT_TIMESTAMP`, which is
+        second-resolution on SQLite — three inserts made back-to-back in a
+        test can land in the same second and tie exactly the way this story
+        is fixing. Nudged apart by hand so the assertion tests the sort
+        rather than getting lucky on how ties happen to break.
+        """
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "UPDATE applications SET created_at = :ts WHERE company = :company"
+                ),
+                [
+                    {"company": "Alpha", "ts": "2026-01-01 00:00:00"},
+                    {"company": "Bravo", "ts": "2026-01-02 00:00:00"},
+                    {"company": "Charlie", "ts": "2026-01-03 00:00:00"},
+                ],
+            )
+
         items = client.get("/applications").json()["items"]
         assert [i["company"] for i in items] == ["Charlie", "Bravo", "Alpha"]
+
+    def test_bare_request_matches_explicit_created_at_desc(self, client):
+        """The route's default and an explicit sort_by=created_at have to
+        agree, or the app (which will send the default explicitly) and any
+        other consumer of a bare GET disagree about what "default" means."""
+        bare = [i["id"] for i in client.get("/applications").json()["items"]]
+        explicit = [
+            i["id"]
+            for i in client.get(
+                "/applications?sort_by=created_at&sort_dir=desc"
+            ).json()["items"]
+        ]
+        assert bare == explicit
 
     def test_sort_ascending_by_company(self, client):
         items = client.get(
@@ -522,10 +561,16 @@ class TestFilterAndSort:
 class TestNullSortOrder:
     """A NULL sorts as though it were greater than every real value (KAN-31).
 
-    This is a decision, not the dialect's default. It is what puts jobs you
-    have not applied to at the *top* of the default view — inherited behaviour
+    This is a decision, not the dialect's default. Sorting by date_applied
+    puts jobs you have not applied to at the *top* — inherited behaviour
     dropped them at the bottom, which past 50 rows means below a "Load more"
     button and effectively out of sight.
+
+    **This no longer describes the default view** (KAN-77 moved the default
+    from date_applied to created_at, which is never NULL — a bare request is
+    covered by TestFilterAndSort instead). What is pinned here is the rule
+    itself: whenever something *does* sort by date_applied, a blank one has
+    to behave this way regardless of whether that sort is the default.
 
     These tests are the only thing pinning it. Nothing else fails if the
     ordering silently reverts.
@@ -542,10 +587,12 @@ class TestNullSortOrder:
     def _companies(self, client, query=""):
         return [i["company"] for i in client.get(f"/applications{query}").json()["items"]]
 
-    def test_undated_leads_the_default_view(self, client):
-        """The default sort is date_applied descending — the view the user
-        actually opens."""
-        assert self._companies(client) == ["Undated", "Dated newer", "Dated older"]
+    def test_undated_leads_a_date_applied_sort(self, client):
+        """Descending date_applied — asked for explicitly, since it is no
+        longer the default — puts the undated record first."""
+        assert self._companies(client, "?sort_by=date_applied") == [
+            "Undated", "Dated newer", "Dated older"
+        ]
 
     def test_ascending_puts_it_last(self, client):
         """Reversing the direction reverses the whole list. Nothing is pinned:

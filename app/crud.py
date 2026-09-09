@@ -28,7 +28,11 @@ def list_applications(
     activity: str = "active",
     source: Optional[str] = None,
     show: str = "active",
-    sort_by: str = "date_applied",
+    # Was `date_applied` until KAN-77 — see the route's own note. This default
+    # is a copy of that decision, kept in sync so a bare call here (as well as
+    # a bare `GET /applications`) orders by something rather than tying on a
+    # column almost every row leaves NULL.
+    sort_by: str = "created_at",
     sort_dir: str = "desc",
     skip: int = 0,
     limit: int = 100,
@@ -90,7 +94,7 @@ def list_applications(
             models.Application.status.in_(sorted(models.INACTIVE_STATUSES))
         )
 
-    sort_column = getattr(models.Application, sort_by, models.Application.date_applied)
+    sort_column = getattr(models.Application, sort_by, models.Application.created_at)
 
     # An hourly rate is annualised *for the ordering only* (KAN-72).
     #
