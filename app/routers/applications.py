@@ -164,10 +164,12 @@ def read_status_timeline(db: Session = Depends(get_db)):
     somewhere it has to be re-derived per consumer and grows the response with
     the table rather than with the number of days.
 
-    **Archived applications are included.** Archiving records whether a record
-    should still be in view (§4.1) — not something that happened to the
-    application — so excluding them would make bands shrink on days when
-    nothing actually changed.
+    **Archived applications are excluded** (KAN-76, reversing KAN-70's
+    original call — see `crud.status_timeline` for why). In practice
+    archiving is how a record that should never have existed is removed, so
+    a chart counting those rows would describe data-entry mistakes alongside
+    real history. The list's own archive filter (`show=`) is unrelated and
+    unchanged.
     """
     return crud.status_timeline(db)
 

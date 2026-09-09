@@ -330,9 +330,28 @@ def status_timeline(db: Session):
     reconstructing client-side would put this logic somewhere it has to be
     re-derived per consumer, and would grow the response with the table.
 
-    **Archived applications are included.** Archiving records whether a record
-    should still be in view (§4.1), not something that happened to it —
-    excluding them would make bands shrink on days when nothing changed.
+    **Archived applications are excluded** (KAN-76) — reversing KAN-70's
+    original call. That decision assumed archiving meant "this row is
+    clutter, but a real one" — a view concern orthogonal to what happened
+    (§4.1) — and on that premise, excluding archived rows would shrink bands
+    on days nothing actually changed. The premise turned out to be wrong:
+    measured on the deployed data, archiving is mostly used as a *soft
+    delete* for a record that should never have existed — seed data, an
+    exact duplicate of another row — and a chart describing the search
+    should not count those. A band shrinking on the day such a row is
+    archived is now the correct outcome, not the failure KAN-70 was
+    guarding against: the row should never have contributed in the first
+    place, and the shrink is that correction arriving.
+
+    Implemented as a join filter on the *replay input* rather than a
+    post-hoc subtraction, which is what makes an archived application
+    contribute to **no** day, including days before it was archived — a
+    real transition that happened is still excluded, because the row it
+    happened to is the thing being treated as never having existed. This
+    is deliberately narrower than §4.1's framing of `archived_at` as "not
+    something that happened to the application" — see KAN-76 for the note
+    that this reversal does not itself revisit that framing everywhere,
+    only here.
 
     A day with no changes still gets an entry, carrying the previous day's
     counts forward. Without that the chart would join across gaps and imply
@@ -340,6 +359,8 @@ def status_timeline(db: Session):
     """
     changes = (
         db.query(models.StatusChange)
+        .join(models.StatusChange.application)
+        .filter(models.Application.archived_at.is_(None))
         .order_by(models.StatusChange.changed_at, models.StatusChange.id)
         .all()
     )

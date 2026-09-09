@@ -331,16 +331,38 @@ class TestStatusTimeline:
             for earlier, later in zip(dates, dates[1:])
         )
 
-    def test_archived_applications_are_still_counted(self, client, make_application):
-        first = make_application(company="Kept")
+    def test_archived_applications_are_excluded(self, client, make_application):
+        """KAN-76 reverses KAN-70's original call. In practice archiving is
+        how a record that should never have existed is removed — seed data,
+        an exact duplicate — and a chart counting those rows would describe
+        data-entry mistakes alongside real history."""
+        make_application(company="Kept")
         second = make_application(company="Filed")
         client.post(f"/applications/{second['id']}/archive")
 
-        # Archiving is a view decision (§4.1), not something that happened to
-        # the application. Dropping it would make a band shrink on a day when
-        # nothing about its status changed.
         counts = self.timeline(client)["series"][-1]["counts"]
-        assert sum(counts.values()) == 2
+        assert sum(counts.values()) == 1
+
+    def test_archiving_removes_every_day_it_ever_contributed_to(
+        self, client, application_payload
+    ):
+        """Not just going forward from the day it was archived. The row is
+        being treated as never having existed, so a real transition recorded
+        before archiving still stops counting — on that day and every day."""
+        created = client.post("/applications", json=application_payload).json()
+        client.patch(f"/applications/{created['id']}", json={"status": "offer"})
+        client.post(f"/applications/{created['id']}/archive")
+
+        assert self.timeline(client) == {"series": [], "opening_count": 0}
+
+    def test_opening_count_excludes_archived_applications(
+        self, client, make_application
+    ):
+        make_application(company="Kept")
+        second = make_application(company="Filed")
+        client.post(f"/applications/{second['id']}/archive")
+
+        assert self.timeline(client)["opening_count"] == 1
 
     def test_opening_count_reports_the_step_at_the_left_edge(
         self, client, make_application
