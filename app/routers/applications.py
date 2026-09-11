@@ -174,6 +174,45 @@ def read_status_timeline(db: Session = Depends(get_db)):
     return crud.status_timeline(db)
 
 
+@router.patch("/by-url/status", response_model=schemas.ApplicationStatusByUrlOut)
+def update_status_by_url(
+    request: schemas.ApplicationStatusByUrl,
+    db: Session = Depends(get_db),
+):
+    matches = crud.find_applications_by_exact_url(db, request.job_link)
+    if not matches:
+        raise HTTPException(
+            status_code=404,
+            detail="No tracked application matches this exact URL. The posting may have redirected.",
+        )
+    if len(matches) > 1:
+        ids = ", ".join(f"#{row.id}" for row in matches)
+        raise HTTPException(
+            status_code=409,
+            detail=f"Multiple applications match this URL: {ids}. Resolve them in Job Tracker; nothing was changed.",
+        )
+    existing = matches[0]
+    if existing.archived_at is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Application #{existing.id} is archived. Update it in Job Tracker; nothing was changed.",
+        )
+
+    changed = existing.status != models.ApplicationStatus.posting_closed
+    # Reuse the only status-update write path, including its history commit.
+    updated = crud.update_application(
+        db, existing.id, schemas.ApplicationUpdate(status=request.status)
+    )
+    return {
+        "id": updated.id,
+        "company": updated.company,
+        "role_title": updated.role_title,
+        "job_link": updated.job_link,
+        "status": updated.status.value,
+        "changed": changed,
+    }
+
+
 @router.get("/{application_id}", response_model=schemas.ApplicationOut)
 def read_application(application_id: int, db: Session = Depends(get_db)):
     db_application = crud.get_application(db, application_id)

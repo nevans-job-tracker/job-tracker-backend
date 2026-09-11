@@ -21,6 +21,24 @@ def get_application(db: Session, application_id: int) -> Optional[models.Applica
     )
 
 
+def find_applications_by_exact_url(db: Session, job_link: str):
+    """Resolve all matches, including archived rows, without trusting collation.
+
+    MariaDB may compare URLs case-insensitively. SQL narrows the candidates;
+    Python equality preserves case-sensitive paths/query values. Lock matches
+    until the caller commits so simultaneous closure requests see the latest
+    status and do not record the same transition twice on MariaDB.
+    """
+    candidates = (
+        db.query(models.Application)
+        .filter(models.Application.job_link == job_link)
+        .order_by(models.Application.id)
+        .with_for_update()
+        .all()
+    )
+    return [row for row in candidates if row.job_link == job_link]
+
+
 def list_applications(
     db: Session,
     search: Optional[str] = None,

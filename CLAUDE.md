@@ -36,9 +36,10 @@ If `docs/` is empty after cloning, run `git submodule update --init`.
 - CORS origins configured via `.env` (`CORS_ORIGINS`) so the frontend's
   deployed origin must be added explicitly.
 - Status field is an enum: applied, phone_screen, interview, offer, rejected,
-  ghosted, withdrawn, interested. `interested` is last because MariaDB stores an
-  ENUM as its ordinal and appending is the only change that leaves existing rows
-  alone — the frontend shows it first. See `REQUIREMENTS.md` §3.
+  ghosted, withdrawn, interested, posting_closed, scam. Values were appended in
+  that order because MariaDB stores an ENUM as its ordinal and appending leaves
+  existing rows alone — the frontend shows Interested first. See
+  `REQUIREMENTS.md` §3.
 - **`date_applied` is nullable** (KAN-31): a job can be tracked before it is
   applied for. A create with no date and no stated status is stored as
   `interested` rather than `applied`.
@@ -92,10 +93,27 @@ If `docs/` is empty after cloning, run `git submodule update --init`.
   archived rows; nothing is ever purged, and there is deliberately no DELETE
   route for applications. Contacts *can* be deleted outright.
 
+## Posting Closed extension (implemented locally)
+
+A separate Chrome extension updates an existing application by matching the
+current tab URL to `job_link`. `PATCH /applications/by-url/status` is implemented
+and tested, but manual deployment and Chrome acceptance are pending. Read the canonical
+[implementation plan](../job-tracker-docs/POSTING_CLOSED_EXTENSION_PLAN.md)
+before continuing. It also appears at `docs/POSTING_CLOSED_EXTENSION_PLAN.md`
+once shared docs are published and this repo's submodule pointer is bumped.
+Until then, the sibling checkout is the current plan. Reuse
+`crud.update_application` to preserve status history. Automatic checks and batch
+updates are deferred. The resolver verifies SQL candidates with exact Python
+equality and locks them on MariaDB; it includes archived rows when detecting
+duplicates. 404 means no match; 409 means ambiguous/archived. Repeats return
+`changed: false`. No migration or frontend change was needed. See the sibling
+[manual deployment checklist](../job-tracker-docs/POSTING_CLOSED_DEPLOYMENT.md).
+The owner chose manual deployment; changes remain uncommitted and undeployed.
+
 ## Testing
 
 ```bash
-pytest        # 190 tests, 99% statements
+pytest        # 304 tests, 99% statements (2026-09-11)
 ```
 
 Runs against throwaway SQLite via a `DATABASE_URL` override, so no MySQL is

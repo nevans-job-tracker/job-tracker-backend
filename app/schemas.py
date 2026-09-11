@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import (
     BaseModel,
@@ -159,6 +159,26 @@ class ApplicationUpdate(BaseModel):
     is_favorite: Optional[bool] = None
 
     _check_job_link = field_validator("job_link")(_validated_job_link)
+
+
+class ApplicationStatusByUrl(BaseModel):
+    """The close-posting extension can change only the status, by exact URL."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    job_link: str = Field(min_length=1, max_length=1024)
+    status: Literal["posting_closed"]
+
+    _check_job_link = field_validator("job_link")(_validated_job_link)
+
+
+class ApplicationStatusByUrlOut(BaseModel):
+    id: int
+    company: str
+    role_title: str
+    job_link: str
+    status: Literal["posting_closed"]
+    changed: bool
 
 
 class ApplicationListOut(ApplicationBase):

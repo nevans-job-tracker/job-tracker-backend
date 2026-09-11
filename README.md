@@ -228,6 +228,12 @@ a test, look at the newest revision first.
 - `GET /applications/{id}` — get one, including its contacts
 - `POST /applications` — create
 - `PATCH /applications/{id}` — partial update
+- `PATCH /applications/by-url/status` — set `posting_closed` on a unique,
+  unarchived application with an exactly matching `job_link`. Body:
+  `{"job_link":"https://example.com/jobs/123","status":"posting_closed"}`.
+  Returns record identity/status and `changed`; repeated closure adds no history.
+  404 for no match; 409 for duplicates or archived matches; 422 for invalid input.
+  Other fields are preserved. Used by the separate Posting Closed extension.
 - `POST /applications/{id}/archive` — archive (hide from the default list)
 - `POST /applications/{id}/unarchive` — restore
 - `GET /applications/{id}/contacts` — list contacts
