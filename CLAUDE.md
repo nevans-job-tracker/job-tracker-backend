@@ -93,11 +93,12 @@ If `docs/` is empty after cloning, run `git submodule update --init`.
   archived rows; nothing is ever purged, and there is deliberately no DELETE
   route for applications. Contacts *can* be deleted outright.
 
-## Posting Closed extension (implemented locally)
+## Posting Closed extension (deployed and manually confirmed)
 
 A separate Chrome extension updates an existing application by matching the
 current tab URL to `job_link`. `PATCH /applications/by-url/status` is implemented
-and tested, but manual deployment and Chrome acceptance are pending. Read the canonical
+and tested, deployed at `16398b1`, and manually confirmed working by the owner
+on 2026-09-11. Read the canonical
 [implementation plan](../job-tracker-docs/POSTING_CLOSED_EXTENSION_PLAN.md)
 before continuing. It also appears at `docs/POSTING_CLOSED_EXTENSION_PLAN.md`
 once shared docs are published and this repo's submodule pointer is bumped.
@@ -108,7 +109,8 @@ equality and locks them on MariaDB; it includes archived rows when detecting
 duplicates. 404 means no match; 409 means ambiguous/archived. Repeats return
 `changed: false`. No migration or frontend change was needed. See the sibling
 [manual deployment checklist](../job-tracker-docs/POSTING_CLOSED_DEPLOYMENT.md).
-The owner chose manual deployment; changes remain uncommitted and undeployed.
+The owner completed manual deployment and confirmed the Chrome workflow works.
+The first version is complete; automatic checks and batching remain future work.
 
 ## Testing
 
