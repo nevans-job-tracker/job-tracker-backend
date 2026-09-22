@@ -510,6 +510,7 @@ class TestPostingClosedStatus:
             "interested",
             "posting_closed",
             "scam",
+            "duplicate",
         ]
 
     def test_is_still_rejected_if_misspelled(self, client, application_payload):
@@ -595,5 +596,109 @@ class TestScamStatus:
     def test_it_is_rejected_if_misspelled(self, client, application_payload):
         response = client.post(
             "/applications", json={**application_payload, "status": "scammed"}
+        )
+        assert response.status_code == 422
+
+
+class TestDuplicateStatus:
+    """The same job, saved twice from two sources (KAN-86).
+
+    Every other status describes the application or the posting. This one
+    describes the *record* — nothing is wrong with the opportunity except that
+    the tracker is holding it more than once.
+    """
+
+    def test_it_can_be_set(self, client, application_payload):
+        response = client.post(
+            "/applications", json={**application_payload, "status": "duplicate"}
+        )
+        assert response.status_code == 201
+        assert response.json()["status"] == "duplicate"
+
+    def test_it_is_inactive_by_construction(self):
+        """The same property KAN-79 asserted, for the same reason.
+
+        Both sets are complements of ACTIVE_STATUSES (KAN-62), so nothing had
+        to be edited for this to land in Inactive. Arriving in the right group
+        for free is precisely what would make a later change to that
+        derivation silent, so the property is pinned rather than the
+        membership.
+        """
+        from app.models import ACTIVE_STATUSES, INACTIVE_STATUSES, ApplicationStatus
+
+        assert ApplicationStatus.duplicate in INACTIVE_STATUSES
+        assert ApplicationStatus.duplicate not in ACTIVE_STATUSES
+        assert ACTIVE_STATUSES | INACTIVE_STATUSES == frozenset(ApplicationStatus)
+
+    def test_it_is_hidden_from_the_default_list(self, client, application_payload):
+        # A duplicate leaves the worklist the moment it is labelled, without
+        # also having to be archived — the two axes compose, but neither is
+        # needed to make the other work.
+        client.post(
+            "/applications", json={**application_payload, "status": "duplicate"}
+        )
+        assert client.get("/applications").json()["total"] == 0
+        assert client.get("/applications?activity=inactive").json()["total"] == 1
+
+    def test_it_is_filterable_apart_from_the_other_record_level_outcomes(
+        self, client, application_payload
+    ):
+        client.post(
+            "/applications", json={**application_payload, "status": "duplicate"}
+        )
+        client.post(
+            "/applications",
+            json={
+                **application_payload,
+                "company": "Other",
+                "status": "posting_closed",
+            },
+        )
+        # The distinction only earns its place if the two can be told apart:
+        # "how many postings closed on their own" must not count a row that
+        # was simply saved twice.
+        assert client.get("/applications?status=duplicate").json()["total"] == 1
+        assert (
+            client.get("/applications?status=posting_closed").json()["total"] == 1
+        )
+
+    def test_it_is_orthogonal_to_archiving(self, client, application_payload):
+        """Archiving says a row should be out of view; this says why.
+
+        REQUIREMENTS §4.1 keeps those two axes independent, and a duplicate is
+        the case where both usually apply — so marking one must not archive it,
+        and archiving one must not change its status.
+        """
+        created = client.post(
+            "/applications", json={**application_payload, "status": "duplicate"}
+        ).json()
+        assert created["archived_at"] is None
+
+        client.post(f"/applications/{created['id']}/archive")
+        after = client.get(f"/applications/{created['id']}").json()
+        assert after["archived_at"] is not None
+        assert after["status"] == "duplicate"
+
+    def test_moving_to_it_is_recorded(self, client, application_payload):
+        """The history enum has to move with the applications one, or a
+        transition into the new status could not be written at all."""
+        from app import models
+        from app.database import SessionLocal
+
+        created = client.post("/applications", json=application_payload).json()
+        client.patch(f"/applications/{created['id']}", json={"status": "duplicate"})
+
+        with SessionLocal() as db:
+            rows = (
+                db.query(models.StatusChange)
+                .filter(models.StatusChange.application_id == created["id"])
+                .order_by(models.StatusChange.id)
+                .all()
+            )
+        assert rows[-1].to_status == models.ApplicationStatus.duplicate
+
+    def test_it_is_rejected_if_misspelled(self, client, application_payload):
+        response = client.post(
+            "/applications", json={**application_payload, "status": "duplicated"}
         )
         assert response.status_code == 422
