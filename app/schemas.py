@@ -233,6 +233,22 @@ class StatusTimelineOut(BaseModel):
     opening_count: int
 
 
+class AppliedPerDayPoint(BaseModel):
+    """One day of the applications-sent chart (KAN-90)."""
+
+    date: date
+    # Present as an explicit zero on quiet days, unlike StatusTimelinePoint's
+    # absent keys above. That chart is a snapshot with nine possible statuses,
+    # mostly zeros; this one is a single count per day, and the zero is the
+    # point — it says no applications went out, which the chart must draw
+    # rather than join across.
+    count: int
+
+
+class AppliedPerDayOut(BaseModel):
+    series: List[AppliedPerDayPoint]
+
+
 class ApplicationOut(ApplicationListOut):
     """Detail view, including the application's contacts."""
 

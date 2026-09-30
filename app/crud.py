@@ -427,6 +427,66 @@ def status_timeline(db: Session):
     return {"series": series, "opening_count": opening}
 
 
+def applications_per_day(db: Session):
+    """How many applications were *sent* on each day (KAN-90).
+
+    **Reads `date_applied`, not `status_changes`.** §2.2 decided this in
+    advance and the reason is worth repeating: `changed_at` records when a row
+    was *edited*, so a batch entered on Sunday evening would all land on Sunday
+    regardless of when they actually went out. `date_applied` is a real-world
+    date the user types, and it is the only column that answers the question
+    being asked.
+
+    **A quiet day is a zero, not a gap** — and this is the opposite of
+    `status_timeline` above, which carries the previous day's counts forward.
+    That one is a *snapshot*: an application still sits in a status on a day
+    nothing happened to it. This one counts *events*, so a day with no
+    applications is a real zero. Joining across it would draw steady activity
+    that did not happen.
+
+    **Archived applications are excluded**, following KAN-76 rather than
+    deciding again: archiving is in practice how a record that should never
+    have existed is removed, and a chart describing the search should not
+    count those.
+
+    Records with no `date_applied` are absent by construction rather than by a
+    filter — most of the tracker is a shortlist never applied to (KAN-31), so
+    this chart covers a minority of rows on purpose. It is "applications
+    sent", not "activity".
+    """
+    rows = (
+        db.query(
+            models.Application.date_applied,
+            func.count(models.Application.id),
+        )
+        .filter(models.Application.date_applied.isnot(None))
+        .filter(models.Application.archived_at.is_(None))
+        .group_by(models.Application.date_applied)
+        .all()
+    )
+    if not rows:
+        # An empty series rather than a single zeroed day, matching
+        # status_timeline. The screen has its own empty state, and inventing a
+        # day would put a point on a chart of nothing that happened.
+        return {"series": []}
+
+    counts = {row[0]: row[1] for row in rows}
+    first = min(counts)
+    # Runs to today even when nothing has been sent for days, because those
+    # trailing zeros are the answer to "how am I doing lately" rather than
+    # missing data. A future date_applied is permitted (§2 warns rather than
+    # rejects), so the end is whichever is later.
+    last = max(max(counts), datetime.utcnow().date())
+
+    series = []
+    day = first
+    while day <= last:
+        series.append({"date": day.isoformat(), "count": counts.get(day, 0)})
+        day += timedelta(days=1)
+
+    return {"series": series}
+
+
 def list_status_changes(db: Session, application_id: int) -> list[models.StatusChange]:
     """Oldest first. `id` breaks ties, because two changes in the same second
     are possible and the timeline's durations depend on a stable order."""

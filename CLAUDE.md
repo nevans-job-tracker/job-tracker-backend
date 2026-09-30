@@ -115,7 +115,7 @@ The first version is complete; automatic checks and batching remain future work.
 ## Testing
 
 ```bash
-pytest        # 314 tests, 99% statements (2026-09-22)
+pytest        # 327 tests, 99% statements (2026-09-30)
 ```
 
 Runs against throwaway SQLite via a `DATABASE_URL` override, so no MySQL is

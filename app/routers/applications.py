@@ -174,6 +174,23 @@ def read_status_timeline(db: Session = Depends(get_db)):
     return crud.status_timeline(db)
 
 
+@router.get("/applied-per-day", response_model=schemas.AppliedPerDayOut)
+def read_applied_per_day(db: Session = Depends(get_db)):
+    """How many applications were sent on each day, for the insights screen
+    (KAN-90).
+
+    Declared before /{application_id} for the third time in this file, for the
+    reason /sources documents: that path parameter is typed int, so
+    "applied-per-day" would 422 rather than fall through.
+
+    Reads `date_applied` rather than the history table, which §2.2 settled
+    before either chart existed — see `crud.applications_per_day` for why, and
+    for why a quiet day here is a zero where the status timeline carries the
+    previous day forward.
+    """
+    return crud.applications_per_day(db)
+
+
 @router.patch("/by-url/status", response_model=schemas.ApplicationStatusByUrlOut)
 def update_status_by_url(
     request: schemas.ApplicationStatusByUrl,
