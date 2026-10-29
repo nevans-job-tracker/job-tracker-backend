@@ -355,6 +355,39 @@ class TestStatusTimeline:
 
         assert self.timeline(client) == {"series": [], "opening_count": 0}
 
+    def test_a_duplicate_is_charted_like_any_other_status(
+        self, client, application_payload
+    ):
+        """KAN-86, asserting a decision rather than a mechanism.
+
+        `duplicate` was first specified as not appearing here at all. It is
+        charted instead, because no *status* is excluded from this endpoint —
+        the one exclusion is KAN-76's, and that filters on the record being
+        archived. A per-status carve-out would turn "this is what the tracker
+        held on these days" into "except the ones we decided not to count",
+        which is close to the claim §4.5 rejected the funnel design for.
+        """
+        created = client.post("/applications", json=application_payload).json()
+        client.patch(f"/applications/{created['id']}", json={"status": "duplicate"})
+
+        counts = self.timeline(client)["series"][-1]["counts"]
+        assert counts == {"duplicate": 1}
+
+    def test_archiving_is_how_a_duplicate_leaves_the_chart(
+        self, client, application_payload
+    ):
+        """The escape hatch the test above depends on existing (KAN-86).
+
+        One mechanism for "this row should never have counted", rather than
+        two that then have to agree with each other. The pair is asserted
+        together so neither half can be changed on its own.
+        """
+        created = client.post("/applications", json=application_payload).json()
+        client.patch(f"/applications/{created['id']}", json={"status": "duplicate"})
+        client.post(f"/applications/{created['id']}/archive")
+
+        assert self.timeline(client) == {"series": [], "opening_count": 0}
+
     def test_opening_count_excludes_archived_applications(
         self, client, make_application
     ):

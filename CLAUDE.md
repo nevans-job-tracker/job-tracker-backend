@@ -36,9 +36,9 @@ If `docs/` is empty after cloning, run `git submodule update --init`.
 - CORS origins configured via `.env` (`CORS_ORIGINS`) so the frontend's
   deployed origin must be added explicitly.
 - Status field is an enum: applied, phone_screen, interview, offer, rejected,
-  ghosted, withdrawn, interested, posting_closed, scam. Values were appended in
-  that order because MariaDB stores an ENUM as its ordinal and appending leaves
-  existing rows alone — the frontend shows Interested first. See
+  ghosted, withdrawn, interested, posting_closed, scam, duplicate. Values were
+  appended in that order because MariaDB stores an ENUM as its ordinal and
+  appending leaves existing rows alone — the frontend shows Interested first. See
   `REQUIREMENTS.md` §3.
 - **`date_applied` is nullable** (KAN-31): a job can be tracked before it is
   applied for. A create with no date and no stated status is stored as
@@ -115,7 +115,7 @@ The first version is complete; automatic checks and batching remain future work.
 ## Testing
 
 ```bash
-pytest        # 304 tests, 99% statements (2026-09-11)
+pytest        # 327 tests, 99% statements (2026-09-30)
 ```
 
 Runs against throwaway SQLite via a `DATABASE_URL` override, so no MySQL is

@@ -48,6 +48,18 @@ class ApplicationStatus(str, enum.Enum):
     # ordinal reason as the two above.
     scam = "scam"
 
+    # The same job, saved twice (KAN-86) — once from LinkedIn and once from
+    # another source, with only one of the two applied to. Every value above
+    # describes the application or the posting; this one describes the
+    # *record*, and nothing is wrong with the opportunity except that the
+    # tracker is holding it more than once.
+    #
+    # Archiving hides such a row and says nothing about why, which is the gap
+    # this fills — the two axes compose rather than compete, and a duplicate
+    # usually wants both. Appended for the same ordinal reason as the three
+    # above.
+    duplicate = "duplicate"
+
 
 # The lifecycle split the list filters on by default (KAN-62): an application
 # is either still in play or it is over.
